@@ -1,9 +1,9 @@
 package interfaceuser
 
 import (
-	domainuser "starter-kit/internal/domain/user"
-	"starter-kit/internal/dto"
-	"starter-kit/pkg/filter"
+	domainuser "service-otp/internal/domain/user"
+	"service-otp/internal/dto"
+	"service-otp/pkg/filter"
 )
 
 type ServiceUserInterface interface {

@@ -2,11 +2,11 @@ package servicemenu
 
 import (
 	"errors"
-	domainmenu "starter-kit/internal/domain/menu"
-	"starter-kit/internal/dto"
-	interfacemenu "starter-kit/internal/interfaces/menu"
-	"starter-kit/pkg/filter"
-	"starter-kit/utils"
+	domainmenu "service-otp/internal/domain/menu"
+	"service-otp/internal/dto"
+	interfacemenu "service-otp/internal/interfaces/menu"
+	"service-otp/pkg/filter"
+	"service-otp/utils"
 	"time"
 )
 

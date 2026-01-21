@@ -7,11 +7,11 @@ import (
 	"log"
 	"net"
 	"os"
-	"starter-kit/infrastructure/database"
-	"starter-kit/internal/router"
-	"starter-kit/pkg/config"
-	"starter-kit/pkg/logger"
-	"starter-kit/utils"
+	"service-otp/infrastructure/database"
+	"service-otp/internal/router"
+	"service-otp/pkg/config"
+	"service-otp/pkg/logger"
+	"service-otp/utils"
 	"strings"
 	"time"
 
@@ -66,7 +66,12 @@ func main() {
 	confID := config.GetAppConf("CONFIG_ID", "", nil)
 	logger.WriteLog(logger.LogLevelDebug, fmt.Sprintf("ConfigID: %s", confID))
 
-	runMigration()
+	dbEnabled := utils.GetEnv("ENABLE_DB", false).(bool)
+	if dbEnabled {
+		runMigration()
+	} else {
+		logger.WriteLog(logger.LogLevelInfo, "DB disabled; skipping migrations and DB-backed routes")
+	}
 
 	// Initialize Redis for session management (optional)
 	redisClient, err := database.InitRedis()
@@ -79,20 +84,23 @@ func main() {
 
 	routes := router.NewRoutes()
 
-	routes.DB, sqlDb, err = database.ConnDb()
-	FailOnError(err, "Failed to open db")
-	defer sqlDb.Close()
+	if dbEnabled {
+		routes.DB, sqlDb, err = database.ConnDb()
+		FailOnError(err, "Failed to open db")
+		defer sqlDb.Close()
 
-	routes.UserRoutes()
-	routes.RoleRoutes()
-	routes.PermissionRoutes()
-	routes.MenuRoutes()
-	routes.OTPRoutes()
+		routes.UserRoutes()
+		routes.RoleRoutes()
+		routes.PermissionRoutes()
+		routes.MenuRoutes()
 
-	// Register session routes if Redis is available
-	if redisClient != nil {
-		routes.SessionRoutes()
+		// Register session routes if Redis is available
+		if redisClient != nil {
+			routes.SessionRoutes()
+		}
 	}
+
+	routes.OTPRoutes()
 
 	logger.WriteLog(logger.LogLevelInfo, "All routes registered successfully")
 

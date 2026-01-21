@@ -3,10 +3,10 @@ package middlewares
 import (
 	"fmt"
 	"net/http"
-	"starter-kit/pkg/logger"
-	"starter-kit/pkg/messages"
-	"starter-kit/pkg/response"
-	"starter-kit/utils"
+	"service-otp/pkg/logger"
+	"service-otp/pkg/messages"
+	"service-otp/pkg/response"
+	"service-otp/utils"
 
 	"github.com/gin-gonic/gin"
 )

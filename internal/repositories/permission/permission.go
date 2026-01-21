@@ -2,9 +2,9 @@ package repositorypermission
 
 import (
 	"fmt"
-	domainpermission "starter-kit/internal/domain/permission"
-	interfacepermission "starter-kit/internal/interfaces/permission"
-	"starter-kit/pkg/filter"
+	domainpermission "service-otp/internal/domain/permission"
+	interfacepermission "service-otp/internal/interfaces/permission"
+	"service-otp/pkg/filter"
 
 	"gorm.io/gorm"
 )

@@ -1,7 +1,7 @@
 package middlewares
 
 import (
-	"starter-kit/utils"
+	"service-otp/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"

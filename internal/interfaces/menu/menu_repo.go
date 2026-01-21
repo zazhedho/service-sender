@@ -1,8 +1,8 @@
 package interfacemenu
 
 import (
-	domainmenu "starter-kit/internal/domain/menu"
-	"starter-kit/pkg/filter"
+	domainmenu "service-otp/internal/domain/menu"
+	"service-otp/pkg/filter"
 )
 
 type RepoMenuInterface interface {

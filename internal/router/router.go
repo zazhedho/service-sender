@@ -7,32 +7,32 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"starter-kit/infrastructure/database"
-	menuHandler "starter-kit/internal/handlers/http/menu"
-	otpHandler "starter-kit/internal/handlers/http/otp"
-	permissionHandler "starter-kit/internal/handlers/http/permission"
-	roleHandler "starter-kit/internal/handlers/http/role"
-	sessionHandler "starter-kit/internal/handlers/http/session"
-	userHandler "starter-kit/internal/handlers/http/user"
-	authRepo "starter-kit/internal/repositories/auth"
-	menuRepo "starter-kit/internal/repositories/menu"
-	otpRepo "starter-kit/internal/repositories/otp"
-	permissionRepo "starter-kit/internal/repositories/permission"
-	roleRepo "starter-kit/internal/repositories/role"
-	sessionRepo "starter-kit/internal/repositories/session"
-	userRepo "starter-kit/internal/repositories/user"
-	menuSvc "starter-kit/internal/services/menu"
-	otpSvc "starter-kit/internal/services/otp"
-	permissionSvc "starter-kit/internal/services/permission"
-	roleSvc "starter-kit/internal/services/role"
-	sessionSvc "starter-kit/internal/services/session"
-	userSvc "starter-kit/internal/services/user"
-	"starter-kit/middlewares"
-	"starter-kit/pkg/config"
-	"starter-kit/pkg/logger"
-	"starter-kit/pkg/mailer"
-	"starter-kit/pkg/security"
-	"starter-kit/utils"
+	"service-otp/infrastructure/database"
+	menuHandler "service-otp/internal/handlers/http/menu"
+	otpHandler "service-otp/internal/handlers/http/otp"
+	permissionHandler "service-otp/internal/handlers/http/permission"
+	roleHandler "service-otp/internal/handlers/http/role"
+	sessionHandler "service-otp/internal/handlers/http/session"
+	userHandler "service-otp/internal/handlers/http/user"
+	authRepo "service-otp/internal/repositories/auth"
+	menuRepo "service-otp/internal/repositories/menu"
+	otpRepo "service-otp/internal/repositories/otp"
+	permissionRepo "service-otp/internal/repositories/permission"
+	roleRepo "service-otp/internal/repositories/role"
+	sessionRepo "service-otp/internal/repositories/session"
+	userRepo "service-otp/internal/repositories/user"
+	menuSvc "service-otp/internal/services/menu"
+	otpSvc "service-otp/internal/services/otp"
+	permissionSvc "service-otp/internal/services/permission"
+	roleSvc "service-otp/internal/services/role"
+	sessionSvc "service-otp/internal/services/session"
+	userSvc "service-otp/internal/services/user"
+	"service-otp/middlewares"
+	"service-otp/pkg/config"
+	"service-otp/pkg/logger"
+	"service-otp/pkg/mailer"
+	"service-otp/pkg/security"
+	"service-otp/utils"
 )
 
 type Routes struct {
@@ -211,7 +211,7 @@ func (r *Routes) OTPRoutes() {
 	svc := otpSvc.NewOTPService(repo, sender, config.LoadOTPConfig())
 	h := otpHandler.NewOTPHandler(svc)
 
-	otp := r.App.Group("/auth/register/otp")
+	otp := r.App.Group("/api/auth/otp")
 	{
 		otp.POST("/send", h.SendRegisterOTP)
 		otp.POST("/verify", h.VerifyRegisterOTP)

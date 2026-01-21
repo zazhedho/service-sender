@@ -2,13 +2,13 @@ package servicerole
 
 import (
 	"errors"
-	domainrole "starter-kit/internal/domain/role"
-	"starter-kit/internal/dto"
-	interfacemenu "starter-kit/internal/interfaces/menu"
-	interfacepermission "starter-kit/internal/interfaces/permission"
-	interfacerole "starter-kit/internal/interfaces/role"
-	"starter-kit/pkg/filter"
-	"starter-kit/utils"
+	domainrole "service-otp/internal/domain/role"
+	"service-otp/internal/dto"
+	interfacemenu "service-otp/internal/interfaces/menu"
+	interfacepermission "service-otp/internal/interfaces/permission"
+	interfacerole "service-otp/internal/interfaces/role"
+	"service-otp/pkg/filter"
+	"service-otp/utils"
 	"time"
 )
 

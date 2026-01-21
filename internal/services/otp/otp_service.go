@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	interfaceotp "starter-kit/internal/interfaces/otp"
-	"starter-kit/pkg/config"
-	"starter-kit/pkg/mailer"
+	interfaceotp "service-otp/internal/interfaces/otp"
+	"service-otp/pkg/config"
+	"service-otp/pkg/mailer"
 
 	"github.com/redis/go-redis/v9"
 )

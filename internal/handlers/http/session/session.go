@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	interfacesession "starter-kit/internal/interfaces/session"
-	"starter-kit/pkg/logger"
-	"starter-kit/pkg/messages"
-	"starter-kit/pkg/response"
-	"starter-kit/utils"
+	interfacesession "service-otp/internal/interfaces/session"
+	"service-otp/pkg/logger"
+	"service-otp/pkg/messages"
+	"service-otp/pkg/response"
+	"service-otp/utils"
 
 	"github.com/gin-gonic/gin"
 )

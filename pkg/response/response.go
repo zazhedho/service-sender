@@ -3,7 +3,7 @@ package response
 import (
 	"math"
 	"net/http"
-	"starter-kit/pkg/messages"
+	"service-otp/pkg/messages"
 
 	"github.com/google/uuid"
 )

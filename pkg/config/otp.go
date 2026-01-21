@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"starter-kit/utils"
+	"service-otp/utils"
 )
 
 type OTPConfig struct {

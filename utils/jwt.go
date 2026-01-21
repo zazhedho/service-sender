@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	domainuser "starter-kit/internal/domain/user"
+	domainuser "service-otp/internal/domain/user"
 	"strings"
 	"time"
 

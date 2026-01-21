@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
-	"starter-kit/pkg/response"
+	"service-otp/pkg/response"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"

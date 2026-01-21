@@ -3,10 +3,10 @@ package servicesession
 import (
 	"context"
 	"fmt"
-	domainsession "starter-kit/internal/domain/session"
-	domainuser "starter-kit/internal/domain/user"
-	interfacesession "starter-kit/internal/interfaces/session"
-	"starter-kit/utils"
+	domainsession "service-otp/internal/domain/session"
+	domainuser "service-otp/internal/domain/user"
+	interfacesession "service-otp/internal/interfaces/session"
+	"service-otp/utils"
 	"time"
 
 	"github.com/gin-gonic/gin"

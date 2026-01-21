@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"starter-kit/utils"
+	"service-otp/utils"
 
 	"log/slog"
 

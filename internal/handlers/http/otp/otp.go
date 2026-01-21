@@ -2,19 +2,20 @@ package handlerotp
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 
-	"starter-kit/internal/dto"
-	interfaceotp "starter-kit/internal/interfaces/otp"
-	serviceotp "starter-kit/internal/services/otp"
-	"starter-kit/pkg/logger"
-	"starter-kit/pkg/messages"
-	"starter-kit/pkg/response"
-	"starter-kit/utils"
+	"service-otp/internal/dto"
+	interfaceotp "service-otp/internal/interfaces/otp"
+	serviceotp "service-otp/internal/services/otp"
+	"service-otp/pkg/logger"
+	"service-otp/pkg/messages"
+	"service-otp/pkg/response"
+	"service-otp/utils"
 )
 
 type HandlerOTP struct {
@@ -37,9 +38,11 @@ func (h *HandlerOTP) SendRegisterOTP(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, res)
 		return
 	}
+	logger.WriteLogWithContext(ctx, logger.LogLevelDebug, fmt.Sprintf("%s; Request email: %s;", logPrefix, req.Email))
 
 	err := h.Service.SendRegisterOTP(ctx.Request.Context(), req.Email)
 	if err != nil {
+		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.SendRegisterOTP error: %v", logPrefix, err))
 		if throttle := new(serviceotp.ThrottleError); errors.As(err, &throttle) {
 			retryAfter := int(throttle.RetryAfter.Seconds())
 			if retryAfter > 0 {
@@ -65,6 +68,7 @@ func (h *HandlerOTP) SendRegisterOTP(ctx *gin.Context) {
 	}
 
 	res := response.Response(http.StatusOK, messages.MsgSuccess, logId, map[string]string{"email": req.Email})
+	logger.WriteLogWithContext(ctx, logger.LogLevelInfo, fmt.Sprintf("%s; OTP sent to: %s", logPrefix, req.Email))
 	ctx.JSON(http.StatusOK, res)
 }
 
@@ -80,9 +84,11 @@ func (h *HandlerOTP) VerifyRegisterOTP(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, res)
 		return
 	}
+	logger.WriteLogWithContext(ctx, logger.LogLevelDebug, fmt.Sprintf("%s; Request email: %s;", logPrefix, req.Email))
 
 	err := h.Service.VerifyRegisterOTP(ctx.Request.Context(), req.Email, req.Code)
 	if err != nil {
+		logger.WriteLogWithContext(ctx, logger.LogLevelWarn, fmt.Sprintf("%s; Service.VerifyRegisterOTP error: %v", logPrefix, err))
 		res := response.Response(http.StatusBadRequest, messages.MsgFail, logId, nil)
 		res.Error = response.Errors{Code: http.StatusBadRequest, Message: "OTP verification failed"}
 		ctx.JSON(http.StatusBadRequest, res)
@@ -90,5 +96,6 @@ func (h *HandlerOTP) VerifyRegisterOTP(ctx *gin.Context) {
 	}
 
 	res := response.Response(http.StatusOK, messages.MsgSuccess, logId, map[string]string{"email": req.Email})
+	logger.WriteLogWithContext(ctx, logger.LogLevelInfo, fmt.Sprintf("%s; OTP verified for: %s", logPrefix, req.Email))
 	ctx.JSON(http.StatusOK, res)
 }

@@ -1,4 +1,4 @@
-module starter-kit
+module service-otp
 
 go 1.25
 

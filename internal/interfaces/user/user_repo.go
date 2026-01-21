@@ -1,8 +1,8 @@
 package interfaceuser
 
 import (
-	domainuser "starter-kit/internal/domain/user"
-	"starter-kit/pkg/filter"
+	domainuser "service-otp/internal/domain/user"
+	"service-otp/pkg/filter"
 )
 
 type RepoUserInterface interface {
