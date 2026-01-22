@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"service-otp/pkg/logger"
 	"strings"
 	"time"
 
@@ -98,6 +99,7 @@ func (s *ServiceOTP) SendRegisterOTP(ctx context.Context, email, appName string)
 		_ = s.Repo.ResetAttempts(ctx, normalizedEmail)
 		_ = s.Repo.ClearCooldown(ctx, normalizedEmail)
 		_ = s.Repo.ClearSendCount(ctx, normalizedEmail)
+		logger.WriteLog(logger.LogLevelError, "OTP delivery error: ", err)
 		return ErrOTPDeliveryFailed
 	}
 
