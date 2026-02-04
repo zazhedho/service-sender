@@ -64,13 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: Production
     steps:
-      - name: Skip deploy (missing secrets)
-        if: ${{ !secrets.VPS_HOST }}
-        run: |
-          echo "Skipping deploy: VPS secrets not configured."
-
       - name: Deploy to VPS
-        if: ${{ secrets.VPS_HOST }}
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
