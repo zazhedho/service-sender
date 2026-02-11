@@ -336,6 +336,83 @@ Jika tombol di atas tidak berfungsi, salin link berikut ke browser Anda:
 	return buf.Bytes()
 }
 
+func (s *BrevoSender) SendEmail(payload EmailPayload) error {
+	addr := fmt.Sprintf("%s:%d", s.Host, s.Port)
+	auth := smtp.PlainAuth("", s.User, s.Pass, s.Host)
+
+	appName := strings.TrimSpace(payload.AppName)
+	if appName == "" {
+		appName = s.AppName
+	}
+
+	subject := strings.TrimSpace(payload.Subject)
+	if subject == "" {
+		subject = "Information"
+	}
+
+	emailType := strings.ToUpper(strings.TrimSpace(payload.Type))
+	if emailType == "" {
+		emailType = "INFO"
+	}
+	finalSubject := fmt.Sprintf("[%s] %s", emailType, subject)
+
+	textBody := strings.TrimSpace(payload.TextBody)
+	htmlBody := strings.TrimSpace(payload.HTMLBody)
+	if textBody == "" && htmlBody != "" {
+		textBody = "Please open this email in HTML mode."
+	}
+
+	for _, recipient := range payload.To {
+		to := strings.TrimSpace(recipient)
+		if to == "" {
+			continue
+		}
+		msg := buildGeneralMessage(s.From, to, payload.ReplyTo, finalSubject, appName, textBody, htmlBody, payload.IdempotencyKey)
+		if err := smtp.SendMail(addr, auth, extractEmail(s.From), []string{to}, msg); err != nil {
+			return fmt.Errorf("send to %s: %w", to, err)
+		}
+	}
+
+	return nil
+}
+
+func buildGeneralMessage(from, to, replyTo, subject, appName, textBody, htmlBody, idempotencyKey string) []byte {
+	if textBody == "" {
+		textBody = "No text content provided."
+	}
+	if htmlBody == "" {
+		htmlBody = "<p>" + html.EscapeString(textBody) + "</p>"
+	}
+
+	boundary := "general-boundary"
+
+	var buf bytes.Buffer
+	buf.WriteString("From: " + from + "\r\n")
+	buf.WriteString("To: " + to + "\r\n")
+	if strings.TrimSpace(replyTo) != "" {
+		buf.WriteString("Reply-To: " + replyTo + "\r\n")
+	}
+	if strings.TrimSpace(idempotencyKey) != "" {
+		buf.WriteString("X-Idempotency-Key: " + idempotencyKey + "\r\n")
+	}
+	if strings.TrimSpace(appName) != "" {
+		buf.WriteString("X-App-Name: " + appName + "\r\n")
+	}
+	buf.WriteString("Subject: " + subject + "\r\n")
+	buf.WriteString("MIME-Version: 1.0\r\n")
+	buf.WriteString("Content-Type: multipart/alternative; boundary=" + boundary + "\r\n\r\n")
+
+	buf.WriteString("--" + boundary + "\r\n")
+	buf.WriteString("Content-Type: text/plain; charset=UTF-8\r\n\r\n")
+	buf.WriteString(textBody + "\r\n")
+	buf.WriteString("--" + boundary + "\r\n")
+	buf.WriteString("Content-Type: text/html; charset=UTF-8\r\n\r\n")
+	buf.WriteString(htmlBody + "\r\n")
+	buf.WriteString("--" + boundary + "--")
+
+	return buf.Bytes()
+}
+
 func extractEmail(from string) string {
 	start := strings.IndexByte(from, '<')
 	end := strings.IndexByte(from, '>')

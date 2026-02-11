@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"service-sender/infrastructure/database"
+	emailHandler "service-sender/internal/handlers/http/email"
 	menuHandler "service-sender/internal/handlers/http/menu"
 	otpHandler "service-sender/internal/handlers/http/otp"
 	permissionHandler "service-sender/internal/handlers/http/permission"
@@ -24,6 +25,7 @@ import (
 	roleRepo "service-sender/internal/repositories/role"
 	sessionRepo "service-sender/internal/repositories/session"
 	userRepo "service-sender/internal/repositories/user"
+	emailSvc "service-sender/internal/services/email"
 	menuSvc "service-sender/internal/services/menu"
 	otpSvc "service-sender/internal/services/otp"
 	permissionSvc "service-sender/internal/services/permission"
@@ -42,6 +44,21 @@ import (
 type Routes struct {
 	App *gin.Engine
 	DB  *gorm.DB
+}
+
+func (r *Routes) EmailRoutes() {
+	sender, err := mailer.NewBrevoSenderFromEnv()
+	if err != nil {
+		logger.WriteLog(logger.LogLevelError, "Email sender not configured: "+err.Error())
+	}
+
+	svc := emailSvc.NewEmailService(sender)
+	h := emailHandler.NewEmailHandler(svc)
+
+	email := r.App.Group("/api/email")
+	{
+		email.POST("/send", h.SendEmail)
+	}
 }
 
 func NewRoutes() *Routes {
