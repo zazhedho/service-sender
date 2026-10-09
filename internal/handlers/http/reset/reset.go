@@ -28,6 +28,11 @@ type HandlerReset struct {
 	Config  config.PasswordResetConfig
 }
 
+const (
+	passwordResetServiceUnavailable = "Password reset service is not available"
+	bindJSONErrorPrefix             = "; BindJSON ERROR: "
+)
+
 func NewResetHandler(s interfacereset.ServicePasswordResetInterface, sender mailer.PasswordResetSender, cfg config.PasswordResetConfig) *HandlerReset {
 	return &HandlerReset{Service: s, Sender: sender, Config: cfg}
 }
@@ -39,13 +44,13 @@ func (h *HandlerReset) RequestReset(ctx *gin.Context) {
 
 	if h.Service == nil {
 		res := response.Response(http.StatusServiceUnavailable, messages.MsgFail, logId, nil)
-		res.Error = response.Errors{Code: http.StatusServiceUnavailable, Message: "Password reset service is not available"}
+		res.Error = response.Errors{Code: http.StatusServiceUnavailable, Message: passwordResetServiceUnavailable}
 		ctx.JSON(http.StatusServiceUnavailable, res)
 		return
 	}
 
 	if err := ctx.BindJSON(&req); err != nil {
-		logger.WriteLogWithContext(ctx, logger.LogLevelError, logPrefix+"; BindJSON ERROR: "+err.Error())
+		logger.WriteLogWithContext(ctx, logger.LogLevelError, logPrefix+bindJSONErrorPrefix+err.Error())
 		res := response.Response(http.StatusBadRequest, messages.InvalidRequest, logId, nil)
 		res.Error = utils.ValidateError(err, reflect.TypeOf(req), "json")
 		ctx.JSON(http.StatusBadRequest, res)
@@ -72,7 +77,7 @@ func (h *HandlerReset) RequestReset(ctx *gin.Context) {
 
 		if errors.Is(err, servicereset.ErrResetNotConfigured) || errors.Is(err, servicereset.ErrResetDeliveryFailed) {
 			res := response.Response(http.StatusInternalServerError, messages.MsgFail, logId, nil)
-			res.Error = response.Errors{Code: http.StatusInternalServerError, Message: "Password reset service is not available"}
+			res.Error = response.Errors{Code: http.StatusInternalServerError, Message: passwordResetServiceUnavailable}
 			ctx.JSON(http.StatusInternalServerError, res)
 			return
 		}
@@ -94,13 +99,13 @@ func (h *HandlerReset) VerifyReset(ctx *gin.Context) {
 
 	if h.Service == nil {
 		res := response.Response(http.StatusServiceUnavailable, messages.MsgFail, logId, nil)
-		res.Error = response.Errors{Code: http.StatusServiceUnavailable, Message: "Password reset service is not available"}
+		res.Error = response.Errors{Code: http.StatusServiceUnavailable, Message: passwordResetServiceUnavailable}
 		ctx.JSON(http.StatusServiceUnavailable, res)
 		return
 	}
 
 	if err := ctx.BindJSON(&req); err != nil {
-		logger.WriteLogWithContext(ctx, logger.LogLevelError, logPrefix+"; BindJSON ERROR: "+err.Error())
+		logger.WriteLogWithContext(ctx, logger.LogLevelError, logPrefix+bindJSONErrorPrefix+err.Error())
 		res := response.Response(http.StatusBadRequest, messages.InvalidRequest, logId, nil)
 		res.Error = utils.ValidateError(err, reflect.TypeOf(req), "json")
 		ctx.JSON(http.StatusBadRequest, res)

@@ -315,33 +315,8 @@ func (s *ServiceUser) Update(id, role string, req dto.UserUpdate) (domainuser.Us
 		data.Email = req.Email
 	}
 
-	if role == utils.RoleAdmin && strings.TrimSpace(req.Role) != "" {
-		newRoleName := strings.ToLower(req.Role)
-
-		if newRoleName == utils.RoleSuperAdmin {
-			return domainuser.Users{}, errors.New("cannot assign superadmin role")
-		}
-
-		data.Role = newRoleName
-
-		roleEntity, err := s.RoleRepo.GetByName(newRoleName)
-		if err == nil && roleEntity.Id != "" {
-			data.RoleId = &roleEntity.Id
-		} else {
-			data.RoleId = nil
-		}
-	}
-
-	if role == utils.RoleSuperAdmin && strings.TrimSpace(req.Role) != "" {
-		newRoleName := strings.ToLower(req.Role)
-		data.Role = newRoleName
-
-		roleEntity, err := s.RoleRepo.GetByName(newRoleName)
-		if err == nil && roleEntity.Id != "" {
-			data.RoleId = &roleEntity.Id
-		} else {
-			data.RoleId = nil
-		}
+	if err := s.applyRequestedRole(&data, role, req.Role); err != nil {
+		return domainuser.Users{}, err
 	}
 
 	if err = s.UserRepo.Update(data); err != nil {
@@ -349,6 +324,24 @@ func (s *ServiceUser) Update(id, role string, req dto.UserUpdate) (domainuser.Us
 	}
 
 	return data, nil
+}
+
+func (s *ServiceUser) applyRequestedRole(user *domainuser.Users, role, requestedRole string) error {
+	if strings.TrimSpace(requestedRole) == "" || (role != utils.RoleAdmin && role != utils.RoleSuperAdmin) {
+		return nil
+	}
+	newRoleName := strings.ToLower(requestedRole)
+	if role == utils.RoleAdmin && newRoleName == utils.RoleSuperAdmin {
+		return errors.New("cannot assign superadmin role")
+	}
+	user.Role = newRoleName
+	roleEntity, err := s.RoleRepo.GetByName(newRoleName)
+	if err == nil && roleEntity.Id != "" {
+		user.RoleId = &roleEntity.Id
+	} else {
+		user.RoleId = nil
+	}
+	return nil
 }
 
 func (s *ServiceUser) ChangePassword(id string, req dto.ChangePassword) (domainuser.Users, error) {

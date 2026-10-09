@@ -19,10 +19,10 @@ import (
 )
 
 type HandlerEmail struct {
-	Service interfaceemail.ServiceEmailInterface
+	Service interfaceemail.EmailSender
 }
 
-func NewEmailHandler(s interfaceemail.ServiceEmailInterface) *HandlerEmail {
+func NewEmailHandler(s interfaceemail.EmailSender) *HandlerEmail {
 	return &HandlerEmail{Service: s}
 }
 

@@ -13,6 +13,8 @@ type repo struct {
 	DB *gorm.DB
 }
 
+const idQuery = "id = ?"
+
 func NewPermissionRepo(db *gorm.DB) interfacepermission.RepoPermissionInterface {
 	return &repo{DB: db}
 }
@@ -22,7 +24,7 @@ func (r *repo) Store(m domainpermission.Permission) error {
 }
 
 func (r *repo) GetByID(id string) (ret domainpermission.Permission, err error) {
-	if err = r.DB.Where("id = ?", id).First(&ret).Error; err != nil {
+	if err = r.DB.Where(idQuery, id).First(&ret).Error; err != nil {
 		return domainpermission.Permission{}, err
 	}
 	return ret, nil
@@ -36,7 +38,7 @@ func (r *repo) GetByName(name string) (ret domainpermission.Permission, err erro
 }
 
 func (r *repo) GetAll(params filter.BaseParams) (ret []domainpermission.Permission, totalData int64, err error) {
-	query := r.DB.Model(&domainpermission.Permission{}).Debug()
+	query := r.DB.Model(&domainpermission.Permission{})
 
 	if params.Search != "" {
 		searchPattern := "%" + params.Search + "%"
@@ -94,7 +96,7 @@ func (r *repo) Update(m domainpermission.Permission) error {
 }
 
 func (r *repo) Delete(id string) error {
-	return r.DB.Where("id = ?", id).Delete(&domainpermission.Permission{}).Error
+	return r.DB.Where(idQuery, id).Delete(&domainpermission.Permission{}).Error
 }
 
 func (r *repo) GetByResource(resource string) (ret []domainpermission.Permission, err error) {
@@ -109,7 +111,7 @@ func (r *repo) GetUserPermissions(userId string) (ret []domainpermission.Permiss
 		RoleId *string
 		Role   string
 	}
-	if err = r.DB.Table("users").Select("role_id, role").Where("id = ?", userId).First(&user).Error; err != nil {
+	if err = r.DB.Table("users").Select("role_id, role").Where(idQuery, userId).First(&user).Error; err != nil {
 		return nil, err
 	}
 

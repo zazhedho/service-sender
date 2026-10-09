@@ -51,7 +51,7 @@ func (r *repo) GetByID(id string) (ret domainuser.Users, err error) {
 }
 
 func (r *repo) GetAll(params filter.BaseParams) (ret []domainuser.Users, totalData int64, err error) {
-	query := r.DB.Model(&domainuser.Users{}).Debug()
+	query := r.DB.Model(&domainuser.Users{})
 
 	if params.Search != "" {
 		searchPattern := "%" + params.Search + "%"

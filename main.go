@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres" // Register the PostgreSQL migration driver.
+	_ "github.com/golang-migrate/migrate/v4/source/file"       // Register the file-based migration source.
 	"github.com/joho/godotenv"
 )
 
@@ -32,30 +32,7 @@ func main() {
 		err   error
 		sqlDb *sql.DB
 	)
-	if timeZone, err := time.LoadLocation("Asia/Jakarta"); err != nil {
-		logger.WriteLog(logger.LogLevelError, "time.LoadLocation - Error: "+err.Error())
-	} else {
-		time.Local = timeZone
-	}
-
-	if err = godotenv.Load(".env"); err != nil && os.Getenv("APP_ENV") == "" {
-		log.Fatalf("Error app environment")
-	}
-
-	myAddr := "unknown"
-	addrs, _ := net.InterfaceAddrs()
-	for _, address := range addrs {
-		if ipNet, ok := address.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
-			if ipNet.IP.To4() != nil {
-				myAddr = ipNet.IP.String()
-				break
-			}
-		}
-	}
-
-	myAddr += strings.Repeat(" ", 15-len(myAddr))
-	os.Setenv("ServerIP", myAddr)
-	logger.WriteLog(logger.LogLevelInfo, "Server IP: "+myAddr)
+	configureServerEnvironment()
 
 	var port, appName string
 	flag.StringVar(&port, "port", os.Getenv("PORT"), "port of the service")
@@ -108,6 +85,33 @@ func main() {
 
 	err = routes.App.Run(fmt.Sprintf(":%s", port))
 	FailOnError(err, "Failed run service")
+}
+
+func configureServerEnvironment() {
+	if timeZone, err := time.LoadLocation("Asia/Jakarta"); err != nil {
+		logger.WriteLog(logger.LogLevelError, "time.LoadLocation - Error: "+err.Error())
+	} else {
+		time.Local = timeZone
+	}
+
+	if err := godotenv.Load(".env"); err != nil && os.Getenv("APP_ENV") == "" {
+		log.Fatalf("Error app environment")
+	}
+
+	myAddr := "unknown"
+	addrs, _ := net.InterfaceAddrs()
+	for _, address := range addrs {
+		if ipNet, ok := address.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
+			if ipNet.IP.To4() != nil {
+				myAddr = ipNet.IP.String()
+				break
+			}
+		}
+	}
+
+	myAddr += strings.Repeat(" ", 15-len(myAddr))
+	os.Setenv("ServerIP", myAddr)
+	logger.WriteLog(logger.LogLevelInfo, "Server IP: "+myAddr)
 }
 
 func runMigration() {

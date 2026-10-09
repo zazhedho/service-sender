@@ -11,7 +11,16 @@ import (
 	"time"
 )
 
-const defaultSMTPPort = 587
+const (
+	defaultSMTPPort                = 587
+	mimeFromHeader                 = "From: "
+	mimeSubjectHeader              = "Subject: "
+	mimeVersionHeader              = "MIME-Version: 1.0\r\n"
+	mimeMultipartAlternativeHeader = "Content-Type: multipart/alternative; boundary="
+	mimeHeaderBodySeparator        = "\r\n\r\n"
+	mimeTextPlainHeader            = "Content-Type: text/plain; charset=UTF-8\r\n\r\n"
+	mimeTextHTMLHeader             = "Content-Type: text/html; charset=UTF-8\r\n\r\n"
+)
 
 // BrevoSender sends OTP emails using Brevo SMTP (compatible with net/smtp).
 type BrevoSender struct {
@@ -179,17 +188,17 @@ func buildOTPMessage(from, to, subject, appName, code string, ttl time.Duration)
 	boundary := "otp-boundary"
 
 	var buf bytes.Buffer
-	buf.WriteString("From: " + from + "\r\n")
+	buf.WriteString(mimeFromHeader + from + "\r\n")
 	buf.WriteString("To: " + to + "\r\n")
-	buf.WriteString("Subject: " + subject + "\r\n")
-	buf.WriteString("MIME-Version: 1.0\r\n")
-	buf.WriteString("Content-Type: multipart/alternative; boundary=" + boundary + "\r\n\r\n")
+	buf.WriteString(mimeSubjectHeader + subject + "\r\n")
+	buf.WriteString(mimeVersionHeader)
+	buf.WriteString(mimeMultipartAlternativeHeader + boundary + mimeHeaderBodySeparator)
 
 	buf.WriteString("--" + boundary + "\r\n")
-	buf.WriteString("Content-Type: text/plain; charset=UTF-8\r\n\r\n")
+	buf.WriteString(mimeTextPlainHeader)
 	buf.WriteString(textBody + "\r\n")
 	buf.WriteString("--" + boundary + "\r\n")
-	buf.WriteString("Content-Type: text/html; charset=UTF-8\r\n\r\n")
+	buf.WriteString(mimeTextHTMLHeader)
 	buf.WriteString(htmlBody + "\r\n")
 	buf.WriteString("--" + boundary + "--")
 
@@ -319,17 +328,17 @@ Jika tombol di atas tidak berfungsi, salin link berikut ke browser Anda:
 	boundary := "reset-boundary"
 
 	var buf bytes.Buffer
-	buf.WriteString("From: " + from + "\r\n")
+	buf.WriteString(mimeFromHeader + from + "\r\n")
 	buf.WriteString("To: " + to + "\r\n")
-	buf.WriteString("Subject: " + subject + "\r\n")
-	buf.WriteString("MIME-Version: 1.0\r\n")
-	buf.WriteString("Content-Type: multipart/alternative; boundary=" + boundary + "\r\n\r\n")
+	buf.WriteString(mimeSubjectHeader + subject + "\r\n")
+	buf.WriteString(mimeVersionHeader)
+	buf.WriteString(mimeMultipartAlternativeHeader + boundary + mimeHeaderBodySeparator)
 
 	buf.WriteString("--" + boundary + "\r\n")
-	buf.WriteString("Content-Type: text/plain; charset=UTF-8\r\n\r\n")
+	buf.WriteString(mimeTextPlainHeader)
 	buf.WriteString(textBody + "\r\n")
 	buf.WriteString("--" + boundary + "\r\n")
-	buf.WriteString("Content-Type: text/html; charset=UTF-8\r\n\r\n")
+	buf.WriteString(mimeTextHTMLHeader)
 	buf.WriteString(htmlBody + "\r\n")
 	buf.WriteString("--" + boundary + "--")
 
@@ -367,7 +376,10 @@ func (s *BrevoSender) SendEmail(payload EmailPayload) error {
 		if to == "" {
 			continue
 		}
-		msg := buildGeneralMessage(s.From, to, payload.ReplyTo, finalSubject, appName, textBody, htmlBody, payload.IdempotencyKey)
+		message := payload
+		message.Subject, message.AppName = finalSubject, appName
+		message.TextBody, message.HTMLBody = textBody, htmlBody
+		msg := buildGeneralMessage(s.From, to, message)
 		if err := smtp.SendMail(addr, auth, extractEmail(s.From), []string{to}, msg); err != nil {
 			return fmt.Errorf("send to %s: %w", to, err)
 		}
@@ -376,10 +388,12 @@ func (s *BrevoSender) SendEmail(payload EmailPayload) error {
 	return nil
 }
 
-func buildGeneralMessage(from, to, replyTo, subject, appName, textBody, htmlBody, idempotencyKey string) []byte {
+func buildGeneralMessage(from, to string, payload EmailPayload) []byte {
+	textBody := payload.TextBody
 	if textBody == "" {
 		textBody = "No text content provided."
 	}
+	htmlBody := payload.HTMLBody
 	if htmlBody == "" {
 		htmlBody = "<p>" + html.EscapeString(textBody) + "</p>"
 	}
@@ -387,26 +401,26 @@ func buildGeneralMessage(from, to, replyTo, subject, appName, textBody, htmlBody
 	boundary := "general-boundary"
 
 	var buf bytes.Buffer
-	buf.WriteString("From: " + from + "\r\n")
+	buf.WriteString(mimeFromHeader + from + "\r\n")
 	buf.WriteString("To: " + to + "\r\n")
-	if strings.TrimSpace(replyTo) != "" {
-		buf.WriteString("Reply-To: " + replyTo + "\r\n")
+	if strings.TrimSpace(payload.ReplyTo) != "" {
+		buf.WriteString("Reply-To: " + payload.ReplyTo + "\r\n")
 	}
-	if strings.TrimSpace(idempotencyKey) != "" {
-		buf.WriteString("X-Idempotency-Key: " + idempotencyKey + "\r\n")
+	if strings.TrimSpace(payload.IdempotencyKey) != "" {
+		buf.WriteString("X-Idempotency-Key: " + payload.IdempotencyKey + "\r\n")
 	}
-	if strings.TrimSpace(appName) != "" {
-		buf.WriteString("X-App-Name: " + appName + "\r\n")
+	if strings.TrimSpace(payload.AppName) != "" {
+		buf.WriteString("X-App-Name: " + payload.AppName + "\r\n")
 	}
-	buf.WriteString("Subject: " + subject + "\r\n")
-	buf.WriteString("MIME-Version: 1.0\r\n")
-	buf.WriteString("Content-Type: multipart/alternative; boundary=" + boundary + "\r\n\r\n")
+	buf.WriteString(mimeSubjectHeader + payload.Subject + "\r\n")
+	buf.WriteString(mimeVersionHeader)
+	buf.WriteString(mimeMultipartAlternativeHeader + boundary + mimeHeaderBodySeparator)
 
 	buf.WriteString("--" + boundary + "\r\n")
-	buf.WriteString("Content-Type: text/plain; charset=UTF-8\r\n\r\n")
+	buf.WriteString(mimeTextPlainHeader)
 	buf.WriteString(textBody + "\r\n")
 	buf.WriteString("--" + boundary + "\r\n")
-	buf.WriteString("Content-Type: text/html; charset=UTF-8\r\n\r\n")
+	buf.WriteString(mimeTextHTMLHeader)
 	buf.WriteString(htmlBody + "\r\n")
 	buf.WriteString("--" + boundary + "--")
 

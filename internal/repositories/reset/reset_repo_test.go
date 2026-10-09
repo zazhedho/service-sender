@@ -18,49 +18,7 @@ func TestConsumeTokenIsSingleUse(t *testing.T) {
 	defer serverConn.Close()
 	done := make(chan error, 1)
 	go func() {
-		reader := bufio.NewReader(serverConn)
-		used := false
-		for {
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				done <- err
-				return
-			}
-			count, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "*")))
-			if err != nil {
-				done <- err
-				return
-			}
-			args := make([]string, count)
-			for i := range args {
-				if _, err = reader.ReadString('\n'); err != nil {
-					done <- err
-					return
-				}
-				line, err = reader.ReadString('\n')
-				if err != nil {
-					done <- err
-					return
-				}
-				args[i] = strings.TrimSuffix(line, "\r\n")
-			}
-			if strings.EqualFold(args[0], "hello") {
-				fmt.Fprint(serverConn, "-ERR unknown command 'hello'\r\n")
-				continue
-			}
-			if !strings.EqualFold(args[0], "getdel") || len(args) != 2 || args[1] != "reset:token:hash" {
-				fmt.Fprint(serverConn, "-ERR expected atomic token consumption\r\n")
-				done <- fmt.Errorf("unexpected command: %v", args)
-				return
-			}
-			if used {
-				fmt.Fprint(serverConn, "$-1\r\n")
-				done <- nil
-				return
-			}
-			fmt.Fprint(serverConn, "$16\r\nuser@example.com\r\n")
-			used = true
-		}
+		done <- serveTokenConsumeCommands(serverConn)
 	}()
 	client := redis.NewClient(&redis.Options{
 		Protocol: 2, DisableIdentity: true, MaxRetries: -1,
@@ -80,4 +38,52 @@ func TestConsumeTokenIsSingleUse(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
+}
+
+func serveTokenConsumeCommands(conn net.Conn) error {
+	reader := bufio.NewReader(conn)
+	used := false
+	for {
+		args, err := readRESPCommand(reader)
+		if err != nil {
+			return err
+		}
+		if strings.EqualFold(args[0], "hello") {
+			fmt.Fprint(conn, "-ERR unknown command 'hello'\r\n")
+			continue
+		}
+		if !strings.EqualFold(args[0], "getdel") || len(args) != 2 || args[1] != "reset:token:hash" {
+			fmt.Fprint(conn, "-ERR expected atomic token consumption\r\n")
+			return fmt.Errorf("unexpected command: %v", args)
+		}
+		if used {
+			fmt.Fprint(conn, "$-1\r\n")
+			return nil
+		}
+		fmt.Fprint(conn, "$16\r\nuser@example.com\r\n")
+		used = true
+	}
+}
+
+func readRESPCommand(reader *bufio.Reader) ([]string, error) {
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+	count, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "*")))
+	if err != nil {
+		return nil, err
+	}
+	args := make([]string, count)
+	for i := range args {
+		if _, err = reader.ReadString('\n'); err != nil {
+			return nil, err
+		}
+		line, err = reader.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		args[i] = strings.TrimSuffix(line, "\r\n")
+	}
+	return args, nil
 }

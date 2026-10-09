@@ -21,6 +21,8 @@ type HandlerSession struct {
 	BlacklistRepo interfaceauth.RepoAuthInterface
 }
 
+const userNotAuthenticatedMessage = "user not authenticated"
+
 func NewSessionHandler(s interfacesession.ServiceSessionInterface, blacklistRepo interfaceauth.RepoAuthInterface) *HandlerSession {
 	return &HandlerSession{Service: s, BlacklistRepo: blacklistRepo}
 }
@@ -33,7 +35,7 @@ func (h *HandlerSession) GetActiveSessions(ctx *gin.Context) {
 	if !ok {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; userId not found in context", logPrefix))
 		res := response.Response(http.StatusUnauthorized, messages.MsgFail, logId, nil)
-		res.Error = "user not authenticated"
+		res.Error = userNotAuthenticatedMessage
 		ctx.JSON(http.StatusUnauthorized, res)
 		return
 	}
@@ -77,7 +79,7 @@ func (h *HandlerSession) RevokeSession(ctx *gin.Context) {
 	if !ok {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; userId not found in context", logPrefix))
 		res := response.Response(http.StatusUnauthorized, messages.MsgFail, logId, nil)
-		res.Error = "user not authenticated"
+		res.Error = userNotAuthenticatedMessage
 		ctx.JSON(http.StatusUnauthorized, res)
 		return
 	}
@@ -132,7 +134,7 @@ func (h *HandlerSession) RevokeAllOtherSessions(ctx *gin.Context) {
 	if !ok {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; userId not found in context", logPrefix))
 		res := response.Response(http.StatusUnauthorized, messages.MsgFail, logId, nil)
-		res.Error = "user not authenticated"
+		res.Error = userNotAuthenticatedMessage
 		ctx.JSON(http.StatusUnauthorized, res)
 		return
 	}

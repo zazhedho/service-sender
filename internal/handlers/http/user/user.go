@@ -34,6 +34,8 @@ type HandlerUser struct {
 	ResetService interfacereset.ServicePasswordResetInterface
 }
 
+const userNotFoundMessage = "user not found"
+
 func NewUserHandler(s interfaceuser.ServiceUserInterface, limiter security.LoginLimiter) *HandlerUser {
 	return &HandlerUser{
 		Service:      s,
@@ -132,69 +134,98 @@ func (h *HandlerUser) Login(ctx *gin.Context) {
 		return
 	}
 	loginIdentifier := fmt.Sprintf("%s:%s", ctx.ClientIP(), strings.ToLower(req.Email))
-	if h.LoginLimiter != nil {
-		blocked, ttl, limiterErr := h.LoginLimiter.IsBlocked(ctx.Request.Context(), loginIdentifier)
-		if limiterErr != nil {
-			logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; LoginLimiter.IsBlocked error: %v", logPrefix, limiterErr))
-		} else if blocked {
-			logger.WriteLogWithContext(ctx, logger.LogLevelWarn, fmt.Sprintf("%s; Too many attempts", logPrefix))
-			h.respondTooManyLoginAttempts(ctx, logId, ttl)
-			return
-		}
+	if h.loginIsBlocked(ctx, loginIdentifier, logId, logPrefix) {
+		return
 	}
 
 	token, err := h.Service.LoginUser(req, logId.String())
 	if err != nil {
-		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.LoginUser; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, gorm.ErrRecordNotFound) || err.Error() == messages.ErrHashPassword {
-			if h.LoginLimiter != nil {
-				blocked, ttl, limiterErr := h.LoginLimiter.RegisterFailure(ctx.Request.Context(), loginIdentifier)
-				if limiterErr != nil {
-					logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; LoginLimiter.RegisterFailure error: %v", logPrefix, limiterErr))
-				}
-				if blocked {
-					logger.WriteLogWithContext(ctx, logger.LogLevelWarn, fmt.Sprintf("%s; Account temporarily locked after repeated failures", logPrefix))
-					h.respondTooManyLoginAttempts(ctx, logId, ttl)
-					return
-				}
-			}
-
-			res := response.Response(http.StatusBadRequest, messages.InvalidCred, logId, nil)
-			res.Error = response.Errors{Code: http.StatusBadRequest, Message: messages.MsgCredential}
-			ctx.JSON(http.StatusBadRequest, res)
-			return
-		}
-
-		res := response.Response(http.StatusInternalServerError, messages.MsgFail, logId, nil)
-		res.Error = err.Error()
-		ctx.JSON(http.StatusInternalServerError, res)
+		h.respondLoginError(ctx, loginIdentifier, logId, logPrefix, err)
 		return
 	}
 
-	if h.LoginLimiter != nil {
-		if err := h.LoginLimiter.Reset(ctx.Request.Context(), loginIdentifier); err != nil {
-			logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; LoginLimiter.Reset error: %v", logPrefix, err))
-		}
-	}
-
-	// Create session if Redis is available
-	if redisClient := database.GetRedisClient(); redisClient != nil {
-		user, errUser := h.Service.GetUserByEmail(req.Email)
-		if errUser == nil {
-			sRepo := sessionRepo.NewSessionRepository(redisClient)
-			sSvc := sessionSvc.NewSessionService(sRepo)
-
-			session, errSession := sSvc.CreateSession(context.Background(), &user, token, ctx)
-			if errSession != nil {
-				logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Failed to create session: %v", logPrefix, errSession))
-			} else {
-				logger.WriteLogWithContext(ctx, logger.LogLevelInfo, fmt.Sprintf("%s; Session created: %s", logPrefix, session.SessionID))
-			}
-		}
-	}
+	h.resetLoginFailures(ctx, loginIdentifier, logPrefix)
+	h.createLoginSession(ctx, req.Email, token, logPrefix)
 
 	res := response.Response(http.StatusOK, "success", logId, map[string]interface{}{"token": token})
 	ctx.JSON(http.StatusOK, res)
+}
+
+func (h *HandlerUser) loginIsBlocked(ctx *gin.Context, identifier string, logId uuid.UUID, logPrefix string) bool {
+	if h.LoginLimiter == nil {
+		return false
+	}
+	blocked, ttl, err := h.LoginLimiter.IsBlocked(ctx.Request.Context(), identifier)
+	if err != nil {
+		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; LoginLimiter.IsBlocked error: %v", logPrefix, err))
+		return false
+	}
+	if !blocked {
+		return false
+	}
+	logger.WriteLogWithContext(ctx, logger.LogLevelWarn, fmt.Sprintf("%s; Too many attempts", logPrefix))
+	h.respondTooManyLoginAttempts(ctx, logId, ttl)
+	return true
+}
+
+func (h *HandlerUser) respondLoginError(ctx *gin.Context, identifier string, logId uuid.UUID, logPrefix string, err error) {
+	logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.LoginUser; ERROR: %s;", logPrefix, err))
+	if errors.Is(err, gorm.ErrRecordNotFound) || err.Error() == messages.ErrHashPassword {
+		if h.registerLoginFailure(ctx, identifier, logId, logPrefix) {
+			return
+		}
+		res := response.Response(http.StatusBadRequest, messages.InvalidCred, logId, nil)
+		res.Error = response.Errors{Code: http.StatusBadRequest, Message: messages.MsgCredential}
+		ctx.JSON(http.StatusBadRequest, res)
+		return
+	}
+	res := response.Response(http.StatusInternalServerError, messages.MsgFail, logId, nil)
+	res.Error = err.Error()
+	ctx.JSON(http.StatusInternalServerError, res)
+}
+
+func (h *HandlerUser) registerLoginFailure(ctx *gin.Context, identifier string, logId uuid.UUID, logPrefix string) bool {
+	if h.LoginLimiter == nil {
+		return false
+	}
+	blocked, ttl, err := h.LoginLimiter.RegisterFailure(ctx.Request.Context(), identifier)
+	if err != nil {
+		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; LoginLimiter.RegisterFailure error: %v", logPrefix, err))
+	}
+	if !blocked {
+		return false
+	}
+	logger.WriteLogWithContext(ctx, logger.LogLevelWarn, fmt.Sprintf("%s; Account temporarily locked after repeated failures", logPrefix))
+	h.respondTooManyLoginAttempts(ctx, logId, ttl)
+	return true
+}
+
+func (h *HandlerUser) resetLoginFailures(ctx *gin.Context, identifier, logPrefix string) {
+	if h.LoginLimiter == nil {
+		return
+	}
+	if err := h.LoginLimiter.Reset(ctx.Request.Context(), identifier); err != nil {
+		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; LoginLimiter.Reset error: %v", logPrefix, err))
+	}
+}
+
+func (h *HandlerUser) createLoginSession(ctx *gin.Context, email, token, logPrefix string) {
+	redisClient := database.GetRedisClient()
+	if redisClient == nil {
+		return
+	}
+	user, err := h.Service.GetUserByEmail(email)
+	if err != nil {
+		return
+	}
+	sRepo := sessionRepo.NewSessionRepository(redisClient)
+	sSvc := sessionSvc.NewSessionService(sRepo)
+	session, err := sSvc.CreateSession(context.Background(), &user, token, ctx)
+	if err != nil {
+		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Failed to create session: %v", logPrefix, err))
+		return
+	}
+	logger.WriteLogWithContext(ctx, logger.LogLevelInfo, fmt.Sprintf("%s; Session created: %s", logPrefix, session.SessionID))
 }
 
 func (h *HandlerUser) respondTooManyLoginAttempts(ctx *gin.Context, logId uuid.UUID, ttl time.Duration) {
@@ -264,7 +295,7 @@ func (h *HandlerUser) GetUserById(ctx *gin.Context) {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.GetUserByID; ERROR: %s;", logPrefix, err))
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			res := response.Response(http.StatusNotFound, messages.MsgNotFound, logId, nil)
-			res.Error = response.Errors{Code: http.StatusNotFound, Message: "user not found"}
+			res.Error = response.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)
 			return
 		}
@@ -291,7 +322,7 @@ func (h *HandlerUser) GetUserByAuth(ctx *gin.Context) {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.GetUserByAuth; ERROR: %s;", logPrefix, err))
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			res := response.Response(http.StatusNotFound, messages.MsgNotFound, logId, nil)
-			res.Error = response.Errors{Code: http.StatusNotFound, Message: "user not found"}
+			res.Error = response.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)
 			return
 		}
@@ -353,7 +384,7 @@ func (h *HandlerUser) Update(ctx *gin.Context) {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.Update; ERROR: %s;", logPrefix, err))
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			res := response.Response(http.StatusNotFound, messages.MsgNotFound, logId, nil)
-			res.Error = response.Errors{Code: http.StatusNotFound, Message: "user not found"}
+			res.Error = response.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)
 			return
 		}
@@ -396,7 +427,7 @@ func (h *HandlerUser) UpdateUserById(ctx *gin.Context) {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.Update; ERROR: %s;", logPrefix, err))
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			res := response.Response(http.StatusNotFound, messages.MsgNotFound, logId, nil)
-			res.Error = response.Errors{Code: http.StatusNotFound, Message: "user not found"}
+			res.Error = response.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)
 			return
 		}
@@ -433,7 +464,7 @@ func (h *HandlerUser) ChangePassword(ctx *gin.Context) {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.ChangePassword; ERROR: %s;", logPrefix, err))
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			res := response.Response(http.StatusNotFound, messages.MsgNotFound, logId, nil)
-			res.Error = response.Errors{Code: http.StatusNotFound, Message: "user not found"}
+			res.Error = response.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)
 			return
 		}
@@ -552,7 +583,7 @@ func (h *HandlerUser) Delete(ctx *gin.Context) {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.Delete; ERROR: %s;", logPrefix, err))
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			res := response.Response(http.StatusNotFound, messages.MsgNotFound, logId, nil)
-			res.Error = response.Errors{Code: http.StatusNotFound, Message: "user not found"}
+			res.Error = response.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)
 			return
 		}
@@ -581,7 +612,7 @@ func (h *HandlerUser) DeleteUserById(ctx *gin.Context) {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.Delete; ERROR: %s;", logPrefix, err))
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			res := response.Response(http.StatusNotFound, messages.MsgNotFound, logId, nil)
-			res.Error = response.Errors{Code: http.StatusNotFound, Message: "user not found"}
+			res.Error = response.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
 			ctx.JSON(http.StatusNotFound, res)
 			return
 		}

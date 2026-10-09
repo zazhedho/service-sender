@@ -13,6 +13,8 @@ type repo struct {
 	DB *gorm.DB
 }
 
+const idQuery = "id = ?"
+
 func NewMenuRepo(db *gorm.DB) interfacemenu.RepoMenuInterface {
 	return &repo{DB: db}
 }
@@ -22,7 +24,7 @@ func (r *repo) Store(m domainmenu.MenuItem) error {
 }
 
 func (r *repo) GetByID(id string) (ret domainmenu.MenuItem, err error) {
-	if err = r.DB.Where("id = ?", id).First(&ret).Error; err != nil {
+	if err = r.DB.Where(idQuery, id).First(&ret).Error; err != nil {
 		return domainmenu.MenuItem{}, err
 	}
 	return ret, nil
@@ -36,7 +38,7 @@ func (r *repo) GetByName(name string) (ret domainmenu.MenuItem, err error) {
 }
 
 func (r *repo) GetAll(params filter.BaseParams) (ret []domainmenu.MenuItem, totalData int64, err error) {
-	query := r.DB.Model(&domainmenu.MenuItem{}).Debug()
+	query := r.DB.Model(&domainmenu.MenuItem{})
 
 	if params.Search != "" {
 		searchPattern := "%" + params.Search + "%"
@@ -94,7 +96,7 @@ func (r *repo) Update(m domainmenu.MenuItem) error {
 }
 
 func (r *repo) Delete(id string) error {
-	return r.DB.Where("id = ?", id).Delete(&domainmenu.MenuItem{}).Error
+	return r.DB.Where(idQuery, id).Delete(&domainmenu.MenuItem{}).Error
 }
 
 func (r *repo) GetActiveMenus() (ret []domainmenu.MenuItem, err error) {
@@ -109,7 +111,7 @@ func (r *repo) GetUserMenus(userId string) (ret []domainmenu.MenuItem, err error
 		RoleId *string
 		Role   string
 	}
-	if err = r.DB.Table("users").Select("role_id, role").Where("id = ?", userId).First(&user).Error; err != nil {
+	if err = r.DB.Table("users").Select("role_id, role").Where(idQuery, userId).First(&user).Error; err != nil {
 		return nil, err
 	}
 

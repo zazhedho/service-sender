@@ -14,6 +14,8 @@ type repo struct {
 	DB *gorm.DB
 }
 
+const roleIDQuery = "role_id = ?"
+
 func NewRoleRepo(db *gorm.DB) interfacerole.RepoRoleInterface {
 	return &repo{DB: db}
 }
@@ -37,7 +39,7 @@ func (r *repo) GetByName(name string) (ret domainrole.Role, err error) {
 }
 
 func (r *repo) GetAll(params filter.BaseParams) (ret []domainrole.Role, totalData int64, err error) {
-	query := r.DB.Model(&domainrole.Role{}).Debug()
+	query := r.DB.Model(&domainrole.Role{})
 
 	if params.Search != "" {
 		searchPattern := "%" + params.Search + "%"
@@ -100,12 +102,12 @@ func (r *repo) Delete(id string) error {
 func (r *repo) AssignPermissions(roleId string, permissionIds []string) error {
 	tx := r.DB.Begin()
 	defer func() {
-		if r := recover(); r != nil {
+		if recover() != nil {
 			tx.Rollback()
 		}
 	}()
 
-	if err := tx.Where("role_id = ?", roleId).Delete(&domainrole.RolePermission{}).Error; err != nil {
+	if err := tx.Where(roleIDQuery, roleId).Delete(&domainrole.RolePermission{}).Error; err != nil {
 		tx.Rollback()
 		return err
 	}
@@ -131,7 +133,7 @@ func (r *repo) RemovePermissions(roleId string, permissionIds []string) error {
 
 func (r *repo) GetRolePermissions(roleId string) ([]string, error) {
 	var rolePermissions []domainrole.RolePermission
-	if err := r.DB.Where("role_id = ?", roleId).Find(&rolePermissions).Error; err != nil {
+	if err := r.DB.Where(roleIDQuery, roleId).Find(&rolePermissions).Error; err != nil {
 		return nil, err
 	}
 
@@ -146,12 +148,12 @@ func (r *repo) GetRolePermissions(roleId string) ([]string, error) {
 func (r *repo) AssignMenus(roleId string, menuIds []string) error {
 	tx := r.DB.Begin()
 	defer func() {
-		if r := recover(); r != nil {
+		if recover() != nil {
 			tx.Rollback()
 		}
 	}()
 
-	if err := tx.Where("role_id = ?", roleId).Delete(&domainrole.RoleMenu{}).Error; err != nil {
+	if err := tx.Where(roleIDQuery, roleId).Delete(&domainrole.RoleMenu{}).Error; err != nil {
 		tx.Rollback()
 		return err
 	}
@@ -177,7 +179,7 @@ func (r *repo) RemoveMenus(roleId string, menuIds []string) error {
 
 func (r *repo) GetRoleMenus(roleId string) ([]string, error) {
 	var roleMenus []domainrole.RoleMenu
-	if err := r.DB.Where("role_id = ?", roleId).Find(&roleMenus).Error; err != nil {
+	if err := r.DB.Where(roleIDQuery, roleId).Find(&roleMenus).Error; err != nil {
 		return nil, err
 	}
 

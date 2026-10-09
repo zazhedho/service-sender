@@ -78,4 +78,4 @@ func dedupeEmails(input []string) []string {
 	return out
 }
 
-var _ interfaceemail.ServiceEmailInterface = (*ServiceEmail)(nil)
+var _ interfaceemail.EmailSender = (*ServiceEmail)(nil)

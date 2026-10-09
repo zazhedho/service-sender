@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	domainpermission "service-sender/internal/domain/permission"
 	interfaceauth "service-sender/internal/interfaces/auth"
 	interfacepermission "service-sender/internal/interfaces/permission"
 	"service-sender/pkg/logger"
@@ -173,15 +174,7 @@ func (m *Middleware) PermissionMiddleware(resource, action string) gin.HandlerFu
 			return
 		}
 
-		hasPermission := false
-		for _, perm := range permissions {
-			if perm.Resource == resource && perm.Action == action {
-				hasPermission = true
-				break
-			}
-		}
-
-		if !hasPermission {
+		if !hasPermission(permissions, resource, action) {
 			logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; User '%s' lacks permission '%s:%s'", logPrefix, userId, resource, action))
 			res := response.Response(http.StatusForbidden, messages.MsgDenied, logId, nil)
 			res.Error = response.Errors{Code: http.StatusForbidden, Message: messages.AccessDenied}
@@ -191,4 +184,13 @@ func (m *Middleware) PermissionMiddleware(resource, action string) gin.HandlerFu
 
 		ctx.Next()
 	}
+}
+
+func hasPermission(permissions []domainpermission.Permission, resource, action string) bool {
+	for _, permission := range permissions {
+		if permission.Resource == resource && permission.Action == action {
+			return true
+		}
+	}
+	return false
 }
