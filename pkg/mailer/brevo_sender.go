@@ -188,19 +188,8 @@ func buildOTPMessage(from, to, subject, appName, code string, ttl time.Duration)
 	boundary := "otp-boundary"
 
 	var buf bytes.Buffer
-	buf.WriteString(mimeFromHeader + from + "\r\n")
-	buf.WriteString("To: " + to + "\r\n")
-	buf.WriteString(mimeSubjectHeader + subject + "\r\n")
-	buf.WriteString(mimeVersionHeader)
-	buf.WriteString(mimeMultipartAlternativeHeader + boundary + mimeHeaderBodySeparator)
-
-	buf.WriteString("--" + boundary + "\r\n")
-	buf.WriteString(mimeTextPlainHeader)
-	buf.WriteString(textBody + "\r\n")
-	buf.WriteString("--" + boundary + "\r\n")
-	buf.WriteString(mimeTextHTMLHeader)
-	buf.WriteString(htmlBody + "\r\n")
-	buf.WriteString("--" + boundary + "--")
+	writeMIMEMessageHeaders(&buf, from, to, subject, boundary)
+	writeMIMEMultipartBody(&buf, boundary, textBody, htmlBody)
 
 	return buf.Bytes()
 }
@@ -328,19 +317,8 @@ Jika tombol di atas tidak berfungsi, salin link berikut ke browser Anda:
 	boundary := "reset-boundary"
 
 	var buf bytes.Buffer
-	buf.WriteString(mimeFromHeader + from + "\r\n")
-	buf.WriteString("To: " + to + "\r\n")
-	buf.WriteString(mimeSubjectHeader + subject + "\r\n")
-	buf.WriteString(mimeVersionHeader)
-	buf.WriteString(mimeMultipartAlternativeHeader + boundary + mimeHeaderBodySeparator)
-
-	buf.WriteString("--" + boundary + "\r\n")
-	buf.WriteString(mimeTextPlainHeader)
-	buf.WriteString(textBody + "\r\n")
-	buf.WriteString("--" + boundary + "\r\n")
-	buf.WriteString(mimeTextHTMLHeader)
-	buf.WriteString(htmlBody + "\r\n")
-	buf.WriteString("--" + boundary + "--")
+	writeMIMEMessageHeaders(&buf, from, to, subject, boundary)
+	writeMIMEMultipartBody(&buf, boundary, textBody, htmlBody)
 
 	return buf.Bytes()
 }
@@ -412,10 +390,25 @@ func buildGeneralMessage(from, to string, payload EmailPayload) []byte {
 	if strings.TrimSpace(payload.AppName) != "" {
 		buf.WriteString("X-App-Name: " + payload.AppName + "\r\n")
 	}
-	buf.WriteString(mimeSubjectHeader + payload.Subject + "\r\n")
+	writeMIMEContentHeaders(&buf, payload.Subject, boundary)
+	writeMIMEMultipartBody(&buf, boundary, textBody, htmlBody)
+
+	return buf.Bytes()
+}
+
+func writeMIMEMessageHeaders(buf *bytes.Buffer, from, to, subject, boundary string) {
+	buf.WriteString(mimeFromHeader + from + "\r\n")
+	buf.WriteString("To: " + to + "\r\n")
+	writeMIMEContentHeaders(buf, subject, boundary)
+}
+
+func writeMIMEContentHeaders(buf *bytes.Buffer, subject, boundary string) {
+	buf.WriteString(mimeSubjectHeader + subject + "\r\n")
 	buf.WriteString(mimeVersionHeader)
 	buf.WriteString(mimeMultipartAlternativeHeader + boundary + mimeHeaderBodySeparator)
+}
 
+func writeMIMEMultipartBody(buf *bytes.Buffer, boundary, textBody, htmlBody string) {
 	buf.WriteString("--" + boundary + "\r\n")
 	buf.WriteString(mimeTextPlainHeader)
 	buf.WriteString(textBody + "\r\n")
@@ -423,8 +416,6 @@ func buildGeneralMessage(from, to string, payload EmailPayload) []byte {
 	buf.WriteString(mimeTextHTMLHeader)
 	buf.WriteString(htmlBody + "\r\n")
 	buf.WriteString("--" + boundary + "--")
-
-	return buf.Bytes()
 }
 
 func extractEmail(from string) string {

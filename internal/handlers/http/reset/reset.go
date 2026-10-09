@@ -20,6 +20,7 @@ import (
 	"service-sender/utils"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type HandlerReset struct {
@@ -37,20 +38,28 @@ func NewResetHandler(s interfacereset.ServicePasswordResetInterface, sender mail
 	return &HandlerReset{Service: s, Sender: sender, Config: cfg}
 }
 
+func writePasswordResetUnavailable(ctx *gin.Context, logId uuid.UUID, status int) {
+	res := response.Response(status, messages.MsgFail, logId, nil)
+	res.Error = response.Errors{Code: status, Message: passwordResetServiceUnavailable}
+	ctx.JSON(status, res)
+}
+
+func logBindJSONError(ctx *gin.Context, logPrefix string, err error) {
+	logger.WriteLogWithContext(ctx, logger.LogLevelError, logPrefix+bindJSONErrorPrefix+err.Error())
+}
+
 func (h *HandlerReset) RequestReset(ctx *gin.Context) {
 	var req dto.PasswordResetRequest
 	logId := utils.GenerateLogId(ctx)
 	logPrefix := "[ResetHandler][RequestReset]"
 
 	if h.Service == nil {
-		res := response.Response(http.StatusServiceUnavailable, messages.MsgFail, logId, nil)
-		res.Error = response.Errors{Code: http.StatusServiceUnavailable, Message: passwordResetServiceUnavailable}
-		ctx.JSON(http.StatusServiceUnavailable, res)
+		writePasswordResetUnavailable(ctx, logId, http.StatusServiceUnavailable)
 		return
 	}
 
 	if err := ctx.BindJSON(&req); err != nil {
-		logger.WriteLogWithContext(ctx, logger.LogLevelError, logPrefix+bindJSONErrorPrefix+err.Error())
+		logBindJSONError(ctx, logPrefix, err)
 		res := response.Response(http.StatusBadRequest, messages.InvalidRequest, logId, nil)
 		res.Error = utils.ValidateError(err, reflect.TypeOf(req), "json")
 		ctx.JSON(http.StatusBadRequest, res)
@@ -76,9 +85,7 @@ func (h *HandlerReset) RequestReset(ctx *gin.Context) {
 		}
 
 		if errors.Is(err, servicereset.ErrResetNotConfigured) || errors.Is(err, servicereset.ErrResetDeliveryFailed) {
-			res := response.Response(http.StatusInternalServerError, messages.MsgFail, logId, nil)
-			res.Error = response.Errors{Code: http.StatusInternalServerError, Message: passwordResetServiceUnavailable}
-			ctx.JSON(http.StatusInternalServerError, res)
+			writePasswordResetUnavailable(ctx, logId, http.StatusInternalServerError)
 			return
 		}
 
@@ -98,14 +105,12 @@ func (h *HandlerReset) VerifyReset(ctx *gin.Context) {
 	logPrefix := "[ResetHandler][VerifyReset]"
 
 	if h.Service == nil {
-		res := response.Response(http.StatusServiceUnavailable, messages.MsgFail, logId, nil)
-		res.Error = response.Errors{Code: http.StatusServiceUnavailable, Message: passwordResetServiceUnavailable}
-		ctx.JSON(http.StatusServiceUnavailable, res)
+		writePasswordResetUnavailable(ctx, logId, http.StatusServiceUnavailable)
 		return
 	}
 
 	if err := ctx.BindJSON(&req); err != nil {
-		logger.WriteLogWithContext(ctx, logger.LogLevelError, logPrefix+bindJSONErrorPrefix+err.Error())
+		logBindJSONError(ctx, logPrefix, err)
 		res := response.Response(http.StatusBadRequest, messages.InvalidRequest, logId, nil)
 		res.Error = utils.ValidateError(err, reflect.TypeOf(req), "json")
 		ctx.JSON(http.StatusBadRequest, res)
@@ -138,14 +143,12 @@ func (h *HandlerReset) SendResetEmail(ctx *gin.Context) {
 	logPrefix := "[ResetHandler][SendResetEmail]"
 
 	if h.Sender == nil {
-		res := response.Response(http.StatusServiceUnavailable, messages.MsgFail, logId, nil)
-		res.Error = response.Errors{Code: http.StatusServiceUnavailable, Message: "Password reset service is not available"}
-		ctx.JSON(http.StatusServiceUnavailable, res)
+		writePasswordResetUnavailable(ctx, logId, http.StatusServiceUnavailable)
 		return
 	}
 
 	if err := ctx.BindJSON(&req); err != nil {
-		logger.WriteLogWithContext(ctx, logger.LogLevelError, logPrefix+"; BindJSON ERROR: "+err.Error())
+		logBindJSONError(ctx, logPrefix, err)
 		res := response.Response(http.StatusBadRequest, messages.InvalidRequest, logId, nil)
 		res.Error = utils.ValidateError(err, reflect.TypeOf(req), "json")
 		ctx.JSON(http.StatusBadRequest, res)

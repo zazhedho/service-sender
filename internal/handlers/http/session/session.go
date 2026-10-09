@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type HandlerSession struct {
@@ -22,6 +23,12 @@ type HandlerSession struct {
 }
 
 const userNotAuthenticatedMessage = "user not authenticated"
+
+func writeUnauthenticatedResponse(ctx *gin.Context, logId uuid.UUID) {
+	res := response.Response(http.StatusUnauthorized, messages.MsgFail, logId, nil)
+	res.Error = userNotAuthenticatedMessage
+	ctx.JSON(http.StatusUnauthorized, res)
+}
 
 func NewSessionHandler(s interfacesession.ServiceSessionInterface, blacklistRepo interfaceauth.RepoAuthInterface) *HandlerSession {
 	return &HandlerSession{Service: s, BlacklistRepo: blacklistRepo}
@@ -34,9 +41,7 @@ func (h *HandlerSession) GetActiveSessions(ctx *gin.Context) {
 	userID, ok := ctx.Get("userId")
 	if !ok {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; userId not found in context", logPrefix))
-		res := response.Response(http.StatusUnauthorized, messages.MsgFail, logId, nil)
-		res.Error = userNotAuthenticatedMessage
-		ctx.JSON(http.StatusUnauthorized, res)
+		writeUnauthenticatedResponse(ctx, logId)
 		return
 	}
 
@@ -78,9 +83,7 @@ func (h *HandlerSession) RevokeSession(ctx *gin.Context) {
 	userID, ok := ctx.Get("userId")
 	if !ok {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; userId not found in context", logPrefix))
-		res := response.Response(http.StatusUnauthorized, messages.MsgFail, logId, nil)
-		res.Error = userNotAuthenticatedMessage
-		ctx.JSON(http.StatusUnauthorized, res)
+		writeUnauthenticatedResponse(ctx, logId)
 		return
 	}
 
@@ -133,9 +136,7 @@ func (h *HandlerSession) RevokeAllOtherSessions(ctx *gin.Context) {
 	userID, ok := ctx.Get("userId")
 	if !ok {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; userId not found in context", logPrefix))
-		res := response.Response(http.StatusUnauthorized, messages.MsgFail, logId, nil)
-		res.Error = userNotAuthenticatedMessage
-		ctx.JSON(http.StatusUnauthorized, res)
+		writeUnauthenticatedResponse(ctx, logId)
 		return
 	}
 

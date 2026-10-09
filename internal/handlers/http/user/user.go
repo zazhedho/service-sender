@@ -36,6 +36,12 @@ type HandlerUser struct {
 
 const userNotFoundMessage = "user not found"
 
+func writeUserNotFound(ctx *gin.Context, logId uuid.UUID) {
+	res := response.Response(http.StatusNotFound, messages.MsgNotFound, logId, nil)
+	res.Error = response.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
+	ctx.JSON(http.StatusNotFound, res)
+}
+
 func NewUserHandler(s interfaceuser.ServiceUserInterface, limiter security.LoginLimiter) *HandlerUser {
 	return &HandlerUser{
 		Service:      s,
@@ -294,9 +300,7 @@ func (h *HandlerUser) GetUserById(ctx *gin.Context) {
 	if err != nil {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.GetUserByID; ERROR: %s;", logPrefix, err))
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			res := response.Response(http.StatusNotFound, messages.MsgNotFound, logId, nil)
-			res.Error = response.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
-			ctx.JSON(http.StatusNotFound, res)
+			writeUserNotFound(ctx, logId)
 			return
 		}
 
@@ -321,9 +325,7 @@ func (h *HandlerUser) GetUserByAuth(ctx *gin.Context) {
 	if err != nil {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.GetUserByAuth; ERROR: %s;", logPrefix, err))
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			res := response.Response(http.StatusNotFound, messages.MsgNotFound, logId, nil)
-			res.Error = response.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
-			ctx.JSON(http.StatusNotFound, res)
+			writeUserNotFound(ctx, logId)
 			return
 		}
 
@@ -383,9 +385,7 @@ func (h *HandlerUser) Update(ctx *gin.Context) {
 	if err != nil {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.Update; ERROR: %s;", logPrefix, err))
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			res := response.Response(http.StatusNotFound, messages.MsgNotFound, logId, nil)
-			res.Error = response.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
-			ctx.JSON(http.StatusNotFound, res)
+			writeUserNotFound(ctx, logId)
 			return
 		}
 
@@ -426,9 +426,7 @@ func (h *HandlerUser) UpdateUserById(ctx *gin.Context) {
 	if err != nil {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.Update; ERROR: %s;", logPrefix, err))
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			res := response.Response(http.StatusNotFound, messages.MsgNotFound, logId, nil)
-			res.Error = response.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
-			ctx.JSON(http.StatusNotFound, res)
+			writeUserNotFound(ctx, logId)
 			return
 		}
 
@@ -582,9 +580,7 @@ func (h *HandlerUser) Delete(ctx *gin.Context) {
 	if err := h.Service.Delete(userId); err != nil {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.Delete; ERROR: %s;", logPrefix, err))
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			res := response.Response(http.StatusNotFound, messages.MsgNotFound, logId, nil)
-			res.Error = response.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
-			ctx.JSON(http.StatusNotFound, res)
+			writeUserNotFound(ctx, logId)
 			return
 		}
 
@@ -611,9 +607,7 @@ func (h *HandlerUser) DeleteUserById(ctx *gin.Context) {
 	if err := h.Service.Delete(id); err != nil {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.Delete; ERROR: %s;", logPrefix, err))
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			res := response.Response(http.StatusNotFound, messages.MsgNotFound, logId, nil)
-			res.Error = response.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
-			ctx.JSON(http.StatusNotFound, res)
+			writeUserNotFound(ctx, logId)
 			return
 		}
 
