@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 type ServiceUser struct {
@@ -65,7 +66,10 @@ func ValidatePasswordStrength(password string) error {
 func (s *ServiceUser) RegisterUser(req dto.UserRegister) (domainuser.Users, error) {
 	phone := utils.NormalizePhoneTo62(req.Phone)
 
-	data, _ := s.UserRepo.GetByEmail(req.Email)
+	data, err := s.UserRepo.GetByEmail(req.Email)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return domainuser.Users{}, err
+	}
 	if data.Id != "" {
 		return domainuser.Users{}, errors.New("email already exists")
 	}
@@ -115,7 +119,10 @@ func (s *ServiceUser) RegisterUser(req dto.UserRegister) (domainuser.Users, erro
 func (s *ServiceUser) AdminCreateUser(req dto.AdminCreateUser, creatorRole string) (domainuser.Users, error) {
 	phone := utils.NormalizePhoneTo62(req.Phone)
 
-	data, _ := s.UserRepo.GetByEmail(req.Email)
+	data, err := s.UserRepo.GetByEmail(req.Email)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return domainuser.Users{}, err
+	}
 	if data.Id != "" {
 		return domainuser.Users{}, errors.New("email already exists")
 	}
@@ -382,7 +389,7 @@ func (s *ServiceUser) ForgotPassword(req dto.ForgotPasswordRequest) (string, err
 		return "", nil
 	}
 
-	token, err := utils.GenerateJwt(&data, "reset_password")
+	token, err := utils.GeneratePasswordResetJwt(&data)
 	if err != nil {
 		return "", err
 	}
@@ -400,7 +407,19 @@ func (s *ServiceUser) ResetPassword(req dto.ResetPasswordRequest) error {
 		return errors.New("invalid or expired token")
 	}
 
-	userId := claims["user_id"].(string)
+	if utils.InterfaceString(claims["token_type"]) != utils.TokenTypePasswordReset {
+		return errors.New("invalid or expired token")
+	}
+	if _, err := s.BlacklistRepo.GetByToken(req.Token); !errors.Is(err, gorm.ErrRecordNotFound) {
+		if err != nil {
+			return err
+		}
+		return errors.New("invalid or expired token")
+	}
+	userId, ok := claims["user_id"].(string)
+	if !ok || strings.TrimSpace(userId) == "" {
+		return errors.New("invalid or expired token")
+	}
 
 	data, err := s.UserRepo.GetByID(userId)
 	if err != nil {
@@ -414,13 +433,31 @@ func (s *ServiceUser) ResetPassword(req dto.ResetPasswordRequest) error {
 
 	data.Password = string(hashedPwd)
 
+	// The unique blacklist token constraint lets only one reset consume this JWT.
+	if err := s.LogoutUser(req.Token); err != nil {
+		return err
+	}
 	if err = s.UserRepo.Update(data); err != nil {
 		return err
 	}
 
-	_ = s.LogoutUser(req.Token)
-
 	return nil
+}
+
+func (s *ServiceUser) ResetPasswordByEmail(email, newPassword string) error {
+	if err := ValidatePasswordStrength(newPassword); err != nil {
+		return err
+	}
+	data, err := s.UserRepo.GetByEmail(strings.ToLower(strings.TrimSpace(email)))
+	if err != nil {
+		return err
+	}
+	hashedPwd, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	data.Password = string(hashedPwd)
+	return s.UserRepo.Update(data)
 }
 
 func (s *ServiceUser) Delete(id string) error {

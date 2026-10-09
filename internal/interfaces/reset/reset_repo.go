@@ -7,7 +7,7 @@ import (
 
 type RepoPasswordResetInterface interface {
 	SetToken(ctx context.Context, hash, email string, ttl time.Duration) error
-	GetEmailByToken(ctx context.Context, hash string) (string, error)
+	ConsumeToken(ctx context.Context, hash string) (string, error)
 	DeleteToken(ctx context.Context, hash string) error
 
 	SetCooldown(ctx context.Context, email string, ttl time.Duration) error

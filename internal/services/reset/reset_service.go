@@ -117,7 +117,7 @@ func (s *ServiceReset) VerifyReset(ctx context.Context, token string) (string, e
 	}
 
 	hash := hashToken(cleanToken, s.Config.Secret)
-	email, err := s.Repo.GetEmailByToken(ctx, hash)
+	email, err := s.Repo.ConsumeToken(ctx, hash)
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return "", ErrResetInvalid
@@ -125,7 +125,6 @@ func (s *ServiceReset) VerifyReset(ctx context.Context, token string) (string, e
 		return "", fmt.Errorf("get token: %w", err)
 	}
 
-	_ = s.Repo.DeleteToken(ctx, hash)
 	_ = s.Repo.ClearCooldown(ctx, email)
 	_ = s.Repo.ClearSendCount(ctx, email)
 

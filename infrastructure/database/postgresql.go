@@ -27,7 +27,7 @@ func ConnDb() (db *gorm.DB, sqlDB *sql.DB, err error) {
 
 	db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{TranslateError: true})
 	if err != nil {
-		logger.WriteLog(logger.LogLevelError, fmt.Sprintf("ConnDb; %s Error: %s", dsn, err.Error()))
+		logger.WriteLog(logger.LogLevelError, "ConnDb; database connection failed")
 		return
 	}
 
@@ -38,7 +38,7 @@ func ConnDb() (db *gorm.DB, sqlDB *sql.DB, err error) {
 
 	sqlDB, err = db.DB()
 	if err != nil {
-		logger.WriteLog(logger.LogLevelError, fmt.Sprintf("ConnDb.sqlDB; %s Error: %s", dsn, err.Error()))
+		logger.WriteLog(logger.LogLevelError, "ConnDb.sqlDB; failed to access database connection")
 		return
 	}
 
@@ -46,8 +46,6 @@ func ConnDb() (db *gorm.DB, sqlDB *sql.DB, err error) {
 	sqlDB.SetConnMaxIdleTime(maxIdleTime)
 	sqlDB.SetMaxOpenConns(maxConn)
 	sqlDB.SetConnMaxLifetime(maxLifeTime)
-
-	db.Debug()
 
 	return
 }

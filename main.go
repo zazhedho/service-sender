@@ -23,7 +23,7 @@ import (
 
 func FailOnError(err error, msg string) {
 	if err != nil {
-		log.Fatalf("%s: %s", msg, err)
+		log.Fatalf("%s: initialization failed", msg)
 	}
 }
 
@@ -124,11 +124,11 @@ func runMigration() {
 
 	m, err := migrate.New(utils.GetEnv("PATH_MIGRATE", "file://migrations").(string), dsn)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("failed to initialize database migration")
 	}
 
 	if err := m.Up(); err != nil && err.Error() != "no change" {
-		log.Fatal(err)
+		log.Fatal("database migration failed")
 	}
 	logger.WriteLog(logger.LogLevelInfo, "Migration Success")
 }

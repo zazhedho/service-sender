@@ -27,9 +27,10 @@ func (r *PasswordResetRepository) SetToken(ctx context.Context, hash, email stri
 	return r.Redis.Set(ctx, key, email, ttl).Err()
 }
 
-func (r *PasswordResetRepository) GetEmailByToken(ctx context.Context, hash string) (string, error) {
+func (r *PasswordResetRepository) ConsumeToken(ctx context.Context, hash string) (string, error) {
 	key := fmt.Sprintf("%s%s", resetTokenKeyPrefix, hash)
-	return r.Redis.Get(ctx, key).Result()
+	// Consume atomically so concurrent verification cannot reuse this token.
+	return r.Redis.GetDel(ctx, key).Result()
 }
 
 func (r *PasswordResetRepository) DeleteToken(ctx context.Context, hash string) error {

@@ -42,13 +42,19 @@ func (m *Middleware) AuthMiddleware() gin.HandlerFunc {
 
 		tokenString, dataJWT, err := utils.JwtClaims(ctx)
 		if err != nil {
-			logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Invalid Token: %s; Error: %s;", logPrefix, tokenString, err.Error()))
+			logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Invalid token", logPrefix))
 			res := response.Response(http.StatusUnauthorized, messages.MsgFail, logId, nil)
 			res.Error = err.Error()
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, res)
 			return
 		}
 		logPrefix += fmt.Sprintf("[%s][%s]", utils.InterfaceString(dataJWT["jti"]), utils.InterfaceString(dataJWT["user_id"]))
+		if utils.InterfaceString(dataJWT["token_type"]) != utils.TokenTypeAccess {
+			res := response.Response(http.StatusUnauthorized, messages.MsgFail, logId, nil)
+			res.Error = "Invalid token type. Please use an access token."
+			ctx.AbortWithStatusJSON(http.StatusUnauthorized, res)
+			return
+		}
 
 		_, err = m.BlacklistRepo.GetByToken(tokenString)
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -60,7 +66,7 @@ func (m *Middleware) AuthMiddleware() gin.HandlerFunc {
 		}
 
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Invalid Token: %s; Error: token is blacklisted;", logPrefix, tokenString))
+			logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Invalid token; token is blacklisted;", logPrefix))
 			res := response.Response(http.StatusUnauthorized, messages.MsgFail, logId, nil)
 			res.Error = "Please login and try again"
 			ctx.AbortWithStatusJSON(http.StatusUnauthorized, res)

@@ -47,9 +47,12 @@ type Routes struct {
 }
 
 func (r *Routes) EmailRoutes() {
-	sender, err := mailer.NewBrevoSenderFromEnv()
+	var sender mailer.EmailSender
+	configuredSender, err := mailer.NewBrevoSenderFromEnv()
 	if err != nil {
 		logger.WriteLog(logger.LogLevelError, "Email sender not configured: "+err.Error())
+	} else {
+		sender = configuredSender
 	}
 
 	svc := emailSvc.NewEmailService(sender)
@@ -57,7 +60,7 @@ func (r *Routes) EmailRoutes() {
 
 	email := r.App.Group("/api/email")
 	{
-		email.POST("/send", h.SendEmail)
+		email.POST("/send", middlewares.APIKeyMiddleware("EMAIL_API_KEY"), h.SendEmail)
 	}
 }
 
@@ -101,6 +104,11 @@ func (r *Routes) UserRoutes() {
 	}
 
 	h := userHandler.NewUserHandler(uc, loginLimiter)
+	if redisClient != nil {
+		if sender, err := mailer.NewBrevoSenderFromEnv(); err == nil {
+			h.ResetService = resetSvc.NewPasswordResetService(resetRepo.NewPasswordResetRepository(redisClient), sender, config.LoadPasswordResetConfig())
+		}
+	}
 	mdw := middlewares.NewMiddleware(blacklistRepo, pRepo)
 
 	// Setup register rate limiter
@@ -223,9 +231,12 @@ func (r *Routes) OTPRoutes() {
 		return
 	}
 
-	sender, err := mailer.NewBrevoSenderFromEnv()
+	var sender mailer.Sender
+	configuredSender, err := mailer.NewBrevoSenderFromEnv()
 	if err != nil {
 		logger.WriteLog(logger.LogLevelError, "OTP sender not configured: "+err.Error())
+	} else {
+		sender = configuredSender
 	}
 
 	repo := otpRepo.NewOTPRepository(redisClient)
@@ -242,9 +253,12 @@ func (r *Routes) OTPRoutes() {
 func (r *Routes) PasswordResetRoutes() {
 	redisClient := database.GetRedisClient()
 
-	sender, err := mailer.NewBrevoSenderFromEnv()
+	var sender mailer.PasswordResetSender
+	configuredSender, err := mailer.NewBrevoSenderFromEnv()
 	if err != nil {
 		logger.WriteLog(logger.LogLevelError, "Password reset sender not configured: "+err.Error())
+	} else {
+		sender = configuredSender
 	}
 
 	cfg := config.LoadPasswordResetConfig()
@@ -261,7 +275,7 @@ func (r *Routes) PasswordResetRoutes() {
 
 	reset := r.App.Group("/api/auth/reset-password")
 	{
-		reset.POST("/email", h.SendResetEmail)
+		reset.POST("/email", middlewares.APIKeyMiddleware("EMAIL_API_KEY"), h.SendResetEmail)
 		reset.POST("/request", h.RequestReset)
 		reset.POST("/verify", h.VerifyReset)
 	}
@@ -276,10 +290,10 @@ func (r *Routes) SessionRoutes() {
 
 	repo := sessionRepo.NewSessionRepository(redisClient)
 	svc := sessionSvc.NewSessionService(repo)
-	h := sessionHandler.NewSessionHandler(svc)
 	blacklistRepo := authRepo.NewBlacklistRepo(r.DB)
 	pRepo := permissionRepo.NewPermissionRepo(r.DB)
 	mdw := middlewares.NewMiddleware(blacklistRepo, pRepo)
+	h := sessionHandler.NewSessionHandler(svc, blacklistRepo)
 
 	// Session management endpoints (authenticated users only)
 	sessionGroup := r.App.Group("/api/user").Use(mdw.AuthMiddleware())

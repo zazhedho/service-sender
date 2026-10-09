@@ -153,7 +153,7 @@ func mapLevelToSlog(level int) slog.Level {
 }
 
 type stringHandler struct {
-	mu     sync.Mutex
+	mu     *sync.Mutex
 	writer io.Writer
 	level  slog.Leveler
 	attrs  []slog.Attr
@@ -165,6 +165,7 @@ func newStringHandler(writer io.Writer, level slog.Leveler) slog.Handler {
 		level = slog.LevelInfo
 	}
 	return &stringHandler{
+		mu:     &sync.Mutex{},
 		writer: writer,
 		level:  level,
 	}
@@ -228,16 +229,24 @@ func (h *stringHandler) Handle(_ context.Context, record slog.Record) error {
 }
 
 func (h *stringHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	clone := *h
-	clone.attrs = append(append([]slog.Attr{}, h.attrs...), attrs...)
-	return &clone
+	return &stringHandler{
+		mu:     h.mu,
+		writer: h.writer,
+		level:  h.level,
+		attrs:  append(append([]slog.Attr(nil), h.attrs...), attrs...),
+		groups: append([]string(nil), h.groups...),
+	}
 }
 
 func (h *stringHandler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
-	clone := *h
-	clone.groups = append(append([]string{}, h.groups...), name)
-	return &clone
+	return &stringHandler{
+		mu:     h.mu,
+		writer: h.writer,
+		level:  h.level,
+		attrs:  append([]slog.Attr(nil), h.attrs...),
+		groups: append(append([]string(nil), h.groups...), name),
+	}
 }

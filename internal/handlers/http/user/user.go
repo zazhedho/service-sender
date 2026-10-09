@@ -8,9 +8,11 @@ import (
 	"reflect"
 	"service-sender/infrastructure/database"
 	"service-sender/internal/dto"
+	interfacereset "service-sender/internal/interfaces/reset"
 	interfaceuser "service-sender/internal/interfaces/user"
 	sessionRepo "service-sender/internal/repositories/session"
 	sessionSvc "service-sender/internal/services/session"
+	serviceuser "service-sender/internal/services/user"
 	"service-sender/pkg/filter"
 	"service-sender/pkg/logger"
 	"service-sender/pkg/messages"
@@ -29,6 +31,7 @@ import (
 type HandlerUser struct {
 	Service      interfaceuser.ServiceUserInterface
 	LoginLimiter security.LoginLimiter
+	ResetService interfacereset.ServicePasswordResetInterface
 }
 
 func NewUserHandler(s interfaceuser.ServiceUserInterface, limiter security.LoginLimiter) *HandlerUser {
@@ -51,8 +54,6 @@ func (h *HandlerUser) Register(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, res)
 		return
 	}
-	logger.WriteLogWithContext(ctx, logger.LogLevelDebug, fmt.Sprintf("%s; Request: %+v;", logPrefix, utils.JsonEncode(req)))
-
 	data, err := h.Service.RegisterUser(req)
 	if err != nil {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.RegisterUser; Error: %+v", logPrefix, err))
@@ -87,8 +88,6 @@ func (h *HandlerUser) AdminCreateUser(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, res)
 		return
 	}
-	logger.WriteLogWithContext(ctx, logger.LogLevelDebug, fmt.Sprintf("%s; Request: %+v;", logPrefix, utils.JsonEncode(req)))
-
 	// Get creator's role from auth data
 	authData := utils.GetAuthData(ctx)
 	if authData == nil {
@@ -132,8 +131,6 @@ func (h *HandlerUser) Login(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, res)
 		return
 	}
-	logger.WriteLogWithContext(ctx, logger.LogLevelDebug, fmt.Sprintf("%s; Request: %+v;", logPrefix, utils.JsonEncode(req)))
-
 	loginIdentifier := fmt.Sprintf("%s:%s", ctx.ClientIP(), strings.ToLower(req.Email))
 	if h.LoginLimiter != nil {
 		blocked, ttl, limiterErr := h.LoginLimiter.IsBlocked(ctx.Request.Context(), loginIdentifier)
@@ -197,7 +194,6 @@ func (h *HandlerUser) Login(ctx *gin.Context) {
 	}
 
 	res := response.Response(http.StatusOK, "success", logId, map[string]interface{}{"token": token})
-	logger.WriteLogWithContext(ctx, logger.LogLevelDebug, fmt.Sprintf("%s; Response: %+v;", logPrefix, utils.JsonEncode(token)))
 	ctx.JSON(http.StatusOK, res)
 }
 
@@ -228,6 +224,13 @@ func (h *HandlerUser) Logout(ctx *gin.Context) {
 		ctx.JSON(http.StatusInternalServerError, res)
 		return
 	}
+	if err := h.Service.LogoutUser(token.(string)); err != nil {
+		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.LogoutUser failed", logPrefix))
+		res := response.Response(http.StatusInternalServerError, messages.MsgFail, logId, nil)
+		res.Error = "failed to revoke session"
+		ctx.JSON(http.StatusInternalServerError, res)
+		return
+	}
 
 	// Destroy session if Redis is available
 	if redisClient := database.GetRedisClient(); redisClient != nil {
@@ -240,14 +243,6 @@ func (h *HandlerUser) Logout(ctx *gin.Context) {
 		} else {
 			logger.WriteLogWithContext(ctx, logger.LogLevelInfo, fmt.Sprintf("%s; Session destroyed successfully", logPrefix))
 		}
-	}
-
-	if err := h.Service.LogoutUser(token.(string)); err != nil {
-		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.LogoutUser; Error: %+v", logPrefix, err))
-		res := response.Response(http.StatusInternalServerError, messages.MsgFail, logId, nil)
-		res.Error = err.Error()
-		ctx.JSON(http.StatusInternalServerError, res)
-		return
 	}
 
 	res := response.Response(http.StatusOK, "User logged out successfully", logId, nil)
@@ -474,6 +469,27 @@ func (h *HandlerUser) ForgotPassword(ctx *gin.Context) {
 		return
 	}
 
+	if h.ResetService != nil {
+		email := strings.ToLower(strings.TrimSpace(req.Email))
+		user, err := h.Service.GetUserByEmail(email)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			logger.WriteLogWithContext(ctx, logger.LogLevelError, logPrefix+"; Password reset user lookup failed")
+		}
+		if err == nil && user.Id != "" {
+			appName := utils.GetEnv("RESET_APP_NAME", utils.GetEnv("APP_NAME", "Account Verification").(string)).(string)
+			if err := h.ResetService.RequestReset(ctx.Request.Context(), email, appName); err != nil {
+				// Keep the public response identical for unknown, throttled, and undeliverable emails.
+				logger.WriteLogWithContext(ctx, logger.LogLevelError, logPrefix+"; Password reset email could not be sent")
+			}
+		}
+		ctx.JSON(http.StatusOK, response.Response(http.StatusOK, "Password reset instructions sent to your email", logId, nil))
+		return
+	}
+	appEnv := strings.ToLower(strings.TrimSpace(utils.GetEnv("APP_ENV", "").(string)))
+	if appEnv != "development" && appEnv != "local" && appEnv != "test" {
+		ctx.JSON(http.StatusServiceUnavailable, response.Response(http.StatusServiceUnavailable, "Password reset service is not available", logId, nil))
+		return
+	}
 	token, err := h.Service.ForgotPassword(req)
 	if err != nil {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.ForgotPassword; ERROR: %s;", logPrefix, err))
@@ -482,8 +498,6 @@ func (h *HandlerUser) ForgotPassword(ctx *gin.Context) {
 		ctx.JSON(http.StatusInternalServerError, res)
 		return
 	}
-
-	logger.WriteLogWithContext(ctx, logger.LogLevelInfo, fmt.Sprintf("MOCK EMAIL SENT: Reset Token for %s: %s", req.Email, token))
 
 	res := response.Response(http.StatusOK, "Password reset instructions sent to your email", logId, token)
 	ctx.JSON(http.StatusOK, res)
@@ -502,7 +516,21 @@ func (h *HandlerUser) ResetPassword(ctx *gin.Context) {
 		return
 	}
 
-	if err := h.Service.ResetPassword(req); err != nil {
+	var resetErr error
+	if h.ResetService != nil {
+		if err := serviceuser.ValidatePasswordStrength(req.NewPassword); err != nil {
+			resetErr = err
+		} else {
+			var email string
+			email, resetErr = h.ResetService.VerifyReset(ctx.Request.Context(), req.Token)
+			if resetErr == nil {
+				resetErr = h.Service.ResetPasswordByEmail(email, req.NewPassword)
+			}
+		}
+	} else {
+		resetErr = h.Service.ResetPassword(req)
+	}
+	if err := resetErr; err != nil {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.ResetPassword; ERROR: %s;", logPrefix, err))
 		res := response.Response(http.StatusBadRequest, messages.MsgFail, logId, nil)
 		res.Error = err.Error()

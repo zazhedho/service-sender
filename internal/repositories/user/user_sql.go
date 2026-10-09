@@ -22,11 +22,17 @@ func (r *repo) Store(m domainuser.Users) error {
 }
 
 func (r *repo) GetByEmail(email string) (ret domainuser.Users, err error) {
-	if err = r.DB.Where("email = ?", email).First(&ret).Error; err != nil {
+	var matches []domainuser.Users
+	if err = r.DB.Where("LOWER(email) = LOWER(?)", email).Limit(2).Find(&matches).Error; err != nil {
 		return domainuser.Users{}, err
 	}
-
-	return ret, nil
+	if len(matches) == 0 {
+		return domainuser.Users{}, gorm.ErrRecordNotFound
+	}
+	if len(matches) != 1 {
+		return domainuser.Users{}, fmt.Errorf("ambiguous email")
+	}
+	return matches[0], nil
 }
 
 func (r *repo) GetByPhone(phone string) (ret domainuser.Users, err error) {
