@@ -1,5 +1,7 @@
 package mailer
 
+import "context"
+
 type EmailPayload struct {
 	Type           string
 	To             []string
@@ -12,5 +14,5 @@ type EmailPayload struct {
 }
 
 type EmailSender interface {
-	SendEmail(payload EmailPayload) error
+	SendEmail(ctx context.Context, payload EmailPayload) error
 }

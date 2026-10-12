@@ -27,8 +27,8 @@ COPY --from=builder /app/main .
 # Copy migrations
 COPY migrations ./migrations
 
-# Expose port 8080 to the outside world
-EXPOSE 8080
+# REST and optional MCP ports; publish MCP only on a private interface.
+EXPOSE 8080 8081
 
 # Run without root privileges.
 USER 10001:10001

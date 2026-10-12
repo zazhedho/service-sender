@@ -2,8 +2,10 @@ package mailer
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"html"
+	"net/mail"
 	"net/smtp"
 	"os"
 	"strconv"
@@ -323,7 +325,7 @@ Jika tombol di atas tidak berfungsi, salin link berikut ke browser Anda:
 	return buf.Bytes()
 }
 
-func (s *BrevoSender) SendEmail(payload EmailPayload) error {
+func (s *BrevoSender) SendEmail(ctx context.Context, payload EmailPayload) error {
 	addr := fmt.Sprintf("%s:%d", s.Host, s.Port)
 	auth := smtp.PlainAuth("", s.User, s.Pass, s.Host)
 
@@ -350,6 +352,9 @@ func (s *BrevoSender) SendEmail(payload EmailPayload) error {
 	}
 
 	for _, recipient := range payload.To {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		to := strings.TrimSpace(recipient)
 		if to == "" {
 			continue
@@ -358,7 +363,7 @@ func (s *BrevoSender) SendEmail(payload EmailPayload) error {
 		message.Subject, message.AppName = finalSubject, appName
 		message.TextBody, message.HTMLBody = textBody, htmlBody
 		msg := buildGeneralMessage(s.From, to, message)
-		if err := smtp.SendMail(addr, auth, extractEmail(s.From), []string{to}, msg); err != nil {
+		if err := sendMailContext(ctx, addr, auth, extractEmail(s.From), []string{to}, msg); err != nil {
 			return fmt.Errorf("send to %s: %w", to, err)
 		}
 	}
@@ -419,10 +424,8 @@ func writeMIMEMultipartBody(buf *bytes.Buffer, boundary, textBody, htmlBody stri
 }
 
 func extractEmail(from string) string {
-	start := strings.IndexByte(from, '<')
-	end := strings.IndexByte(from, '>')
-	if start >= 0 && end > start {
-		return from[start+1 : end]
+	if address, err := mail.ParseAddress(from); err == nil {
+		return address.Address
 	}
 	return from
 }

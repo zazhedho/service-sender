@@ -1,0 +1,22 @@
+services:
+  service_sender:
+    image: ghcr.io/zazhedho/service-sender-api:latest
+    container_name: service-sender-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APP_ENV: production
+      PORT: "8080"
+      ENABLE_DB: "false"
+      MCP_ENABLED: "true"
+      MCP_ADDR: "0.0.0.0:8081"
+    ports:
+      - "127.0.0.1:8088:8080"
+      - "127.0.0.1:8089:8081"
+    cpus: "0.50"
+    mem_limit: 256m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 10s

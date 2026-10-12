@@ -22,7 +22,7 @@ func NewEmailService(sender mailer.EmailSender) *ServiceEmail {
 	return &ServiceEmail{Sender: sender}
 }
 
-func (s *ServiceEmail) Send(_ context.Context, req dto.SendEmailRequest, appName string) (int, string, error) {
+func (s *ServiceEmail) Send(ctx context.Context, req dto.SendEmailRequest, appName string) (int, string, error) {
 	if s == nil || s.Sender == nil {
 		return 0, "", ErrEmailNotConfigured
 	}
@@ -55,7 +55,7 @@ func (s *ServiceEmail) Send(_ context.Context, req dto.SendEmailRequest, appName
 		IdempotencyKey: strings.TrimSpace(req.IdempotencyKey),
 	}
 
-	if err := s.Sender.SendEmail(payload); err != nil {
+	if err := s.Sender.SendEmail(ctx, payload); err != nil {
 		return 0, "", err
 	}
 	return len(to), subject, nil

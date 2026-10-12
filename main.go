@@ -1,18 +1,24 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"flag"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
+	"os/signal"
 	"service-sender/infrastructure/database"
+	mcpHandler "service-sender/internal/handlers/mcp"
 	"service-sender/internal/router"
 	"service-sender/pkg/config"
 	"service-sender/pkg/logger"
+	"service-sender/pkg/mailer"
 	"service-sender/utils"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -33,6 +39,8 @@ func main() {
 		sqlDb *sql.DB
 	)
 	configureServerEnvironment()
+	mcpConfig, err := config.LoadMCPConfig()
+	FailOnError(err, "Invalid MCP configuration")
 
 	var port, appName string
 	flag.StringVar(&port, "port", os.Getenv("PORT"), "port of the service")
@@ -83,7 +91,22 @@ func main() {
 
 	logger.WriteLog(logger.LogLevelInfo, "All routes registered successfully")
 
-	err = routes.App.Run(fmt.Sprintf(":%s", port))
+	var mcpServer *http.Server
+	if mcpConfig.Enabled {
+		sender, senderErr := mailer.NewBrevoSenderFromEnv()
+		FailOnError(senderErr, "Failed to configure MCP email sender")
+		emailAppName, nameErr := mcpEmailAppName()
+		FailOnError(nameErr, "Invalid MCP email app name")
+		mcpServer = &http.Server{
+			Addr:              mcpConfig.Addr,
+			Handler:           mcpHandler.NewHTTPHandler(mcpConfig, mcpEmailServices(mcpConfig, *sender), emailAppName),
+			ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
+			ReadTimeout: 35 * time.Second, WriteTimeout: 35 * time.Second,
+		}
+	}
+	serverContext, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	err = serveHTTPServers(serverContext, &http.Server{Addr: fmt.Sprintf(":%s", port), Handler: routes.App, ReadHeaderTimeout: 10 * time.Second}, mcpServer)
 	FailOnError(err, "Failed run service")
 }
 
