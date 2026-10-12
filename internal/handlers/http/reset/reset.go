@@ -44,8 +44,15 @@ func writePasswordResetUnavailable(ctx *gin.Context, logId uuid.UUID, status int
 	ctx.JSON(status, res)
 }
 
-func logBindJSONError(ctx *gin.Context, logPrefix string, err error) {
-	logger.WriteLogWithContext(ctx, logger.LogLevelError, logPrefix+bindJSONErrorPrefix+err.Error())
+func bindResetJSON(ctx *gin.Context, req interface{}, logId uuid.UUID, logPrefix string) bool {
+	if err := ctx.BindJSON(req); err != nil {
+		logger.WriteLogWithContext(ctx, logger.LogLevelError, logPrefix+bindJSONErrorPrefix+err.Error())
+		res := response.Response(http.StatusBadRequest, messages.InvalidRequest, logId, nil)
+		res.Error = utils.ValidateError(err, reflect.TypeOf(req).Elem(), "json")
+		ctx.JSON(http.StatusBadRequest, res)
+		return false
+	}
+	return true
 }
 
 func (h *HandlerReset) RequestReset(ctx *gin.Context) {
@@ -58,11 +65,7 @@ func (h *HandlerReset) RequestReset(ctx *gin.Context) {
 		return
 	}
 
-	if err := ctx.BindJSON(&req); err != nil {
-		logBindJSONError(ctx, logPrefix, err)
-		res := response.Response(http.StatusBadRequest, messages.InvalidRequest, logId, nil)
-		res.Error = utils.ValidateError(err, reflect.TypeOf(req), "json")
-		ctx.JSON(http.StatusBadRequest, res)
+	if !bindResetJSON(ctx, &req, logId, logPrefix) {
 		return
 	}
 
@@ -109,11 +112,7 @@ func (h *HandlerReset) VerifyReset(ctx *gin.Context) {
 		return
 	}
 
-	if err := ctx.BindJSON(&req); err != nil {
-		logBindJSONError(ctx, logPrefix, err)
-		res := response.Response(http.StatusBadRequest, messages.InvalidRequest, logId, nil)
-		res.Error = utils.ValidateError(err, reflect.TypeOf(req), "json")
-		ctx.JSON(http.StatusBadRequest, res)
+	if !bindResetJSON(ctx, &req, logId, logPrefix) {
 		return
 	}
 
@@ -147,11 +146,7 @@ func (h *HandlerReset) SendResetEmail(ctx *gin.Context) {
 		return
 	}
 
-	if err := ctx.BindJSON(&req); err != nil {
-		logBindJSONError(ctx, logPrefix, err)
-		res := response.Response(http.StatusBadRequest, messages.InvalidRequest, logId, nil)
-		res.Error = utils.ValidateError(err, reflect.TypeOf(req), "json")
-		ctx.JSON(http.StatusBadRequest, res)
+	if !bindResetJSON(ctx, &req, logId, logPrefix) {
 		return
 	}
 

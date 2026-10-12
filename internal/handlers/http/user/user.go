@@ -42,6 +42,18 @@ func writeUserNotFound(ctx *gin.Context, logId uuid.UUID) {
 	ctx.JSON(http.StatusNotFound, res)
 }
 
+func writeUserServiceError(ctx *gin.Context, logId uuid.UUID, logPrefix, service string, status int, err error) {
+	logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; %s; ERROR: %s;", logPrefix, service, err))
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		writeUserNotFound(ctx, logId)
+		return
+	}
+
+	res := response.Response(status, messages.MsgFail, logId, nil)
+	res.Error = err.Error()
+	ctx.JSON(status, res)
+}
+
 func NewUserHandler(s interfaceuser.ServiceUserInterface, limiter security.LoginLimiter) *HandlerUser {
 	return &HandlerUser{
 		Service:      s,
@@ -298,15 +310,7 @@ func (h *HandlerUser) GetUserById(ctx *gin.Context) {
 
 	data, err := h.Service.GetUserById(id)
 	if err != nil {
-		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.GetUserByID; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			writeUserNotFound(ctx, logId)
-			return
-		}
-
-		res := response.Response(http.StatusInternalServerError, messages.MsgFail, logId, nil)
-		res.Error = err.Error()
-		ctx.JSON(http.StatusInternalServerError, res)
+		writeUserServiceError(ctx, logId, logPrefix, "Service.GetUserByID", http.StatusInternalServerError, err)
 		return
 	}
 
@@ -323,15 +327,7 @@ func (h *HandlerUser) GetUserByAuth(ctx *gin.Context) {
 
 	data, err := h.Service.GetUserByAuth(userId)
 	if err != nil {
-		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.GetUserByAuth; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			writeUserNotFound(ctx, logId)
-			return
-		}
-
-		res := response.Response(http.StatusInternalServerError, messages.MsgFail, logId, nil)
-		res.Error = err.Error()
-		ctx.JSON(http.StatusInternalServerError, res)
+		writeUserServiceError(ctx, logId, logPrefix, "Service.GetUserByAuth", http.StatusInternalServerError, err)
 		return
 	}
 
@@ -383,15 +379,7 @@ func (h *HandlerUser) Update(ctx *gin.Context) {
 
 	data, err := h.Service.Update(userId, role, req)
 	if err != nil {
-		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.Update; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			writeUserNotFound(ctx, logId)
-			return
-		}
-
-		res := response.Response(http.StatusBadRequest, messages.MsgFail, logId, nil)
-		res.Error = err.Error()
-		ctx.JSON(http.StatusBadRequest, res)
+		writeUserServiceError(ctx, logId, logPrefix, "Service.Update", http.StatusBadRequest, err)
 		return
 	}
 
@@ -424,15 +412,7 @@ func (h *HandlerUser) UpdateUserById(ctx *gin.Context) {
 
 	data, err := h.Service.Update(id, role, req)
 	if err != nil {
-		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.Update; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			writeUserNotFound(ctx, logId)
-			return
-		}
-
-		res := response.Response(http.StatusBadRequest, messages.MsgFail, logId, nil)
-		res.Error = err.Error()
-		ctx.JSON(http.StatusBadRequest, res)
+		writeUserServiceError(ctx, logId, logPrefix, "Service.Update", http.StatusBadRequest, err)
 		return
 	}
 
@@ -461,9 +441,7 @@ func (h *HandlerUser) ChangePassword(ctx *gin.Context) {
 	if err != nil {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.ChangePassword; ERROR: %s;", logPrefix, err))
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			res := response.Response(http.StatusNotFound, messages.MsgNotFound, logId, nil)
-			res.Error = response.Errors{Code: http.StatusNotFound, Message: userNotFoundMessage}
-			ctx.JSON(http.StatusNotFound, res)
+			writeUserNotFound(ctx, logId)
 			return
 		}
 
@@ -578,15 +556,7 @@ func (h *HandlerUser) Delete(ctx *gin.Context) {
 	userId := utils.InterfaceString(authData["user_id"])
 
 	if err := h.Service.Delete(userId); err != nil {
-		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.Delete; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			writeUserNotFound(ctx, logId)
-			return
-		}
-
-		res := response.Response(http.StatusInternalServerError, messages.MsgFail, logId, nil)
-		res.Error = err.Error()
-		ctx.JSON(http.StatusInternalServerError, res)
+		writeUserServiceError(ctx, logId, logPrefix, "Service.Delete", http.StatusInternalServerError, err)
 		return
 	}
 
@@ -605,15 +575,7 @@ func (h *HandlerUser) DeleteUserById(ctx *gin.Context) {
 	}
 
 	if err := h.Service.Delete(id); err != nil {
-		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; Service.Delete; ERROR: %s;", logPrefix, err))
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			writeUserNotFound(ctx, logId)
-			return
-		}
-
-		res := response.Response(http.StatusInternalServerError, messages.MsgFail, logId, nil)
-		res.Error = err.Error()
-		ctx.JSON(http.StatusInternalServerError, res)
+		writeUserServiceError(ctx, logId, logPrefix, "Service.Delete", http.StatusInternalServerError, err)
 		return
 	}
 
