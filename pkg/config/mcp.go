@@ -19,10 +19,11 @@ type EmailSenderConfig struct {
 }
 
 type MCPConfig struct {
-	Enabled   bool
-	Addr      string
-	ServerKey string
-	Senders   []EmailSenderConfig
+	Enabled     bool
+	Addr        string
+	ServerKey   string
+	BrevoAPIKey string
+	Senders     []EmailSenderConfig
 }
 
 func LoadMCPConfig() (MCPConfig, error) {
@@ -50,6 +51,7 @@ func LoadMCPConfig() (MCPConfig, error) {
 		return cfg, errors.New("MCP_SERVER_KEY is required and must not contain whitespace")
 	}
 	cfg.ServerKey = strings.TrimSpace(key)
+	cfg.BrevoAPIKey = strings.TrimSpace(os.Getenv("BREVO_API_KEY"))
 	decoder := json.NewDecoder(strings.NewReader(os.Getenv("EMAIL_VERIFIED_SENDERS")))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&cfg.Senders); err != nil {

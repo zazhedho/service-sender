@@ -33,10 +33,18 @@ func mcpEmailAppName() (string, error) {
 
 func mcpEmailServices(cfg config.MCPConfig, sender mailer.BrevoSender) map[string]interfaceemail.EmailSender {
 	services := make(map[string]interfaceemail.EmailSender, len(cfg.Senders))
+	var brevoAPI *mailer.BrevoAPIClient
+	if cfg.BrevoAPIKey != "" {
+		brevoAPI = mailer.NewBrevoAPIClient(cfg.BrevoAPIKey)
+	}
 	for _, entry := range cfg.Senders {
 		selectedSender := sender
 		selectedSender.From = (&mail.Address{Name: entry.Name, Address: entry.Email}).String()
-		services[entry.ID] = serviceemail.NewEmailService(&selectedSender)
+		var emailSender mailer.EmailSender = &selectedSender
+		if brevoAPI != nil {
+			emailSender = mailer.NewBrevoAPISender(brevoAPI, entry.Email, entry.Name)
+		}
+		services[entry.ID] = serviceemail.NewEmailService(emailSender)
 	}
 	return services
 }

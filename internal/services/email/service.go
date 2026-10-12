@@ -23,8 +23,25 @@ func NewEmailService(sender mailer.EmailSender) *ServiceEmail {
 }
 
 func (s *ServiceEmail) Send(ctx context.Context, req dto.SendEmailRequest, appName string) (int, string, error) {
+	total, subject, _, _, err := s.send(ctx, req, appName)
+	return total, subject, err
+}
+
+func (s *ServiceEmail) SendTracked(ctx context.Context, req dto.SendEmailRequest, appName string) (int, string, []mailer.BrevoEmailTracking, bool, error) {
+	return s.send(ctx, req, appName)
+}
+
+func (s *ServiceEmail) GetEmailStatus(ctx context.Context, messageID string) ([]mailer.BrevoEmailEvent, error) {
+	tracker, ok := s.Sender.(mailer.EmailStatusTracker)
+	if !ok {
+		return nil, errors.New("email status tracking is not configured")
+	}
+	return tracker.GetEmailStatus(ctx, messageID)
+}
+
+func (s *ServiceEmail) send(ctx context.Context, req dto.SendEmailRequest, appName string) (int, string, []mailer.BrevoEmailTracking, bool, error) {
 	if s == nil || s.Sender == nil {
-		return 0, "", ErrEmailNotConfigured
+		return 0, "", nil, false, ErrEmailNotConfigured
 	}
 
 	subject, textBody, htmlBody, err := renderEmailContent(
@@ -36,12 +53,12 @@ func (s *ServiceEmail) Send(ctx context.Context, req dto.SendEmailRequest, appNa
 		strings.TrimSpace(appName),
 	)
 	if err != nil {
-		return 0, "", err
+		return 0, "", nil, false, err
 	}
 
 	to := dedupeEmails(req.To)
 	if len(to) == 0 {
-		return 0, "", fmt.Errorf("recipient list is empty")
+		return 0, "", nil, false, fmt.Errorf("recipient list is empty")
 	}
 
 	payload := mailer.EmailPayload{
@@ -55,10 +72,17 @@ func (s *ServiceEmail) Send(ctx context.Context, req dto.SendEmailRequest, appNa
 		IdempotencyKey: strings.TrimSpace(req.IdempotencyKey),
 	}
 
-	if err := s.Sender.SendEmail(ctx, payload); err != nil {
-		return 0, "", err
+	if sender, ok := s.Sender.(mailer.TrackedEmailSender); ok {
+		tracking, err := sender.SendTrackedEmail(ctx, payload)
+		if err != nil {
+			return len(tracking), subject, tracking, true, err
+		}
+		return len(tracking), subject, tracking, true, nil
 	}
-	return len(to), subject, nil
+	if err := s.Sender.SendEmail(ctx, payload); err != nil {
+		return 0, "", nil, false, err
+	}
+	return len(to), subject, nil, false, nil
 }
 
 func dedupeEmails(input []string) []string {
