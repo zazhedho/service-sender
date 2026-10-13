@@ -1,11 +1,15 @@
 package mailer
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net"
 	"net/http/httptest"
 	"net/mail"
@@ -295,5 +299,74 @@ func TestExtractEmailPreservesDefaultFromFormats(t *testing.T) {
 		if got := extractEmail(input); got != "default@example.com" {
 			t.Fatalf("extract %q = %q", input, got)
 		}
+	}
+}
+
+func TestBuildGeneralMessagePreservesAttachmentBytes(t *testing.T) {
+	want := append([]byte{0x00, 0xff, 0x50, 0x44, 0x46}, bytes.Repeat([]byte{0xab}, 128)...)
+	messageData, err := buildGeneralMessage("Sender <sender@example.com>", "recipient@example.com", EmailPayload{
+		Subject: "[NOTIFICATION] CV", TextBody: "Plain body", HTMLBody: "<p>HTML body</p>",
+		Attachments: []EmailAttachment{{Name: "resume.pdf", Content: want}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := mail.ReadMessage(bytes.NewReader(messageData))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mediaType, params, err := mime.ParseMediaType(message.Header.Get("Content-Type"))
+	if err != nil || mediaType != "multipart/mixed" {
+		t.Fatalf("outer content type = %q, %v", mediaType, err)
+	}
+	outer := multipart.NewReader(message.Body, params["boundary"])
+	alternative, err := outer.NextPart()
+	if err != nil {
+		t.Fatal(err)
+	}
+	alternativeType, alternativeParams, err := mime.ParseMediaType(alternative.Header.Get("Content-Type"))
+	if err != nil || alternativeType != "multipart/alternative" {
+		t.Fatalf("alternative content type = %q, %v", alternativeType, err)
+	}
+	inner := multipart.NewReader(alternative, alternativeParams["boundary"])
+	textPart, err := inner.NextPart()
+	if err != nil {
+		t.Fatal(err)
+	}
+	textBody, err := io.ReadAll(textPart)
+	if err != nil || string(textBody) != "Plain body" {
+		t.Fatalf("text body = %q, %v", textBody, err)
+	}
+	htmlPart, err := inner.NextPart()
+	if err != nil {
+		t.Fatal(err)
+	}
+	htmlBody, err := io.ReadAll(htmlPart)
+	if err != nil || string(htmlBody) != "<p>HTML body</p>" {
+		t.Fatalf("HTML body = %q, %v", htmlBody, err)
+	}
+	attachment, err := outer.NextPart()
+	if err != nil {
+		t.Fatal(err)
+	}
+	disposition, dispositionParams, err := mime.ParseMediaType(attachment.Header.Get("Content-Disposition"))
+	if err != nil || disposition != "attachment" || dispositionParams["filename"] != "resume.pdf" {
+		t.Fatalf("attachment disposition = %q, %v", attachment.Header.Get("Content-Disposition"), err)
+	}
+	if attachment.Header.Get("Content-Transfer-Encoding") != "base64" {
+		t.Fatalf("attachment transfer encoding = %q", attachment.Header.Get("Content-Transfer-Encoding"))
+	}
+	encoded, err := io.ReadAll(attachment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(string(encoded), "\r\n"), "\r\n") {
+		if len(line) > 76 {
+			t.Fatalf("Base64 line has %d characters", len(line))
+		}
+	}
+	got, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(string(encoded), "\r\n", ""))
+	if err != nil || !bytes.Equal(got, want) {
+		t.Fatalf("attachment bytes = %v, %v; want %v", got, err, want)
 	}
 }

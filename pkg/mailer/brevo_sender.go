@@ -3,11 +3,17 @@ package mailer
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"html"
+	"io"
+	"mime"
+	"mime/multipart"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -362,7 +368,10 @@ func (s *BrevoSender) SendEmail(ctx context.Context, payload EmailPayload) error
 		message := payload
 		message.Subject, message.AppName = finalSubject, appName
 		message.TextBody, message.HTMLBody = textBody, htmlBody
-		msg := buildGeneralMessage(s.From, to, message)
+		msg, err := buildGeneralMessage(s.From, to, message)
+		if err != nil {
+			return fmt.Errorf("build message for %s: %w", to, err)
+		}
 		if err := sendMailContext(ctx, addr, auth, extractEmail(s.From), []string{to}, msg); err != nil {
 			return fmt.Errorf("send to %s: %w", to, err)
 		}
@@ -371,7 +380,7 @@ func (s *BrevoSender) SendEmail(ctx context.Context, payload EmailPayload) error
 	return nil
 }
 
-func buildGeneralMessage(from, to string, payload EmailPayload) []byte {
+func buildGeneralMessage(from, to string, payload EmailPayload) ([]byte, error) {
 	textBody := payload.TextBody
 	if textBody == "" {
 		textBody = "No text content provided."
@@ -379,6 +388,9 @@ func buildGeneralMessage(from, to string, payload EmailPayload) []byte {
 	htmlBody := payload.HTMLBody
 	if htmlBody == "" {
 		htmlBody = "<p>" + html.EscapeString(textBody) + "</p>"
+	}
+	if len(payload.Attachments) > 0 {
+		return buildGeneralMessageWithAttachments(from, to, payload, textBody, htmlBody)
 	}
 
 	boundary := "general-boundary"
@@ -398,7 +410,126 @@ func buildGeneralMessage(from, to string, payload EmailPayload) []byte {
 	writeMIMEContentHeaders(&buf, payload.Subject, boundary)
 	writeMIMEMultipartBody(&buf, boundary, textBody, htmlBody)
 
-	return buf.Bytes()
+	return buf.Bytes(), nil
+}
+
+func buildGeneralMessageWithAttachments(from, to string, payload EmailPayload, textBody, htmlBody string) ([]byte, error) {
+	var buf bytes.Buffer
+	buf.WriteString(mimeFromHeader + from + "\r\n")
+	buf.WriteString("To: " + to + "\r\n")
+	if strings.TrimSpace(payload.ReplyTo) != "" {
+		buf.WriteString("Reply-To: " + payload.ReplyTo + "\r\n")
+	}
+	if strings.TrimSpace(payload.IdempotencyKey) != "" {
+		buf.WriteString("X-Idempotency-Key: " + payload.IdempotencyKey + "\r\n")
+	}
+	if strings.TrimSpace(payload.AppName) != "" {
+		buf.WriteString("X-App-Name: " + payload.AppName + "\r\n")
+	}
+	buf.WriteString(mimeSubjectHeader + payload.Subject + "\r\n")
+	buf.WriteString(mimeVersionHeader)
+
+	mixed := multipart.NewWriter(&buf)
+	mixedType := mime.FormatMediaType("multipart/mixed", map[string]string{"boundary": mixed.Boundary()})
+	if mixedType == "" {
+		return nil, fmt.Errorf("could not encode MIME boundary")
+	}
+	buf.WriteString("Content-Type: " + mixedType + mimeHeaderBodySeparator)
+
+	alternativeBoundary := multipart.NewWriter(io.Discard).Boundary()
+	alternativeType := mime.FormatMediaType("multipart/alternative", map[string]string{"boundary": alternativeBoundary})
+	if alternativeType == "" {
+		return nil, fmt.Errorf("could not encode MIME alternative boundary")
+	}
+	alternativeHeader := make(textproto.MIMEHeader)
+	alternativeHeader.Set("Content-Type", alternativeType)
+	alternativePart, err := mixed.CreatePart(alternativeHeader)
+	if err != nil {
+		return nil, fmt.Errorf("could not create MIME alternative: %w", err)
+	}
+	alternative := multipart.NewWriter(alternativePart)
+	if err := alternative.SetBoundary(alternativeBoundary); err != nil {
+		return nil, fmt.Errorf("could not set MIME alternative boundary: %w", err)
+	}
+	for _, body := range []struct{ contentType, value string }{
+		{"text/plain; charset=UTF-8", textBody},
+		{"text/html; charset=UTF-8", htmlBody},
+	} {
+		header := make(textproto.MIMEHeader)
+		header.Set("Content-Type", body.contentType)
+		part, err := alternative.CreatePart(header)
+		if err != nil {
+			return nil, fmt.Errorf("could not create MIME body part: %w", err)
+		}
+		if _, err := io.WriteString(part, body.value); err != nil {
+			return nil, fmt.Errorf("could not write MIME body part: %w", err)
+		}
+	}
+	if err := alternative.Close(); err != nil {
+		return nil, fmt.Errorf("could not close MIME alternative: %w", err)
+	}
+
+	for _, attachment := range payload.Attachments {
+		contentType := mime.TypeByExtension(filepath.Ext(attachment.Name))
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		disposition := mime.FormatMediaType("attachment", map[string]string{"filename": attachment.Name})
+		if disposition == "" {
+			return nil, fmt.Errorf("invalid MIME attachment filename")
+		}
+		header := make(textproto.MIMEHeader)
+		header.Set("Content-Type", contentType)
+		header.Set("Content-Disposition", disposition)
+		header.Set("Content-Transfer-Encoding", "base64")
+		part, err := mixed.CreatePart(header)
+		if err != nil {
+			return nil, fmt.Errorf("could not create MIME attachment: %w", err)
+		}
+		encoder := base64.NewEncoder(base64.StdEncoding, &mimeBase64LineWriter{writer: part})
+		if _, err := encoder.Write(attachment.Content); err != nil {
+			return nil, fmt.Errorf("could not encode MIME attachment: %w", err)
+		}
+		if err := encoder.Close(); err != nil {
+			return nil, fmt.Errorf("could not finish MIME attachment: %w", err)
+		}
+	}
+	if err := mixed.Close(); err != nil {
+		return nil, fmt.Errorf("could not close MIME message: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+type mimeBase64LineWriter struct {
+	writer io.Writer
+	column int
+}
+
+func (w *mimeBase64LineWriter) Write(p []byte) (int, error) {
+	written := 0
+	for len(p) > 0 {
+		chunk := 76 - w.column
+		if chunk > len(p) {
+			chunk = len(p)
+		}
+		n, err := w.writer.Write(p[:chunk])
+		written += n
+		w.column += n
+		p = p[n:]
+		if err != nil {
+			return written, err
+		}
+		if n != chunk {
+			return written, io.ErrShortWrite
+		}
+		if w.column == 76 {
+			if _, err := io.WriteString(w.writer, "\r\n"); err != nil {
+				return written, err
+			}
+			w.column = 0
+		}
+	}
+	return written, nil
 }
 
 func writeMIMEMessageHeaders(buf *bytes.Buffer, from, to, subject, boundary string) {

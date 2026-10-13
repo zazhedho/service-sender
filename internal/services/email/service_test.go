@@ -1,6 +1,7 @@
 package serviceemail
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -36,6 +37,21 @@ func TestEmailServiceForwardsContext(t *testing.T) {
 	}
 	if sender.ctx != ctx || sender.calls != 1 || sender.payload.To[0] != "a@example.com" || sender.payload.AppName != "App" || sender.payload.IdempotencyKey != "rest-key" {
 		t.Fatalf("payload = %+v, calls %d", sender.payload, sender.calls)
+	}
+}
+
+func TestEmailServiceForwardsAttachments(t *testing.T) {
+	want := []byte{0x00, 0xff, 0x50, 0x44, 0x46}
+	sender := &recordingSender{}
+	_, _, err := NewEmailService(sender).Send(context.Background(), dto.SendEmailRequest{
+		Type: "notification", To: []string{"a@example.com"}, Subject: "CV", TextBody: "See attached",
+		Attachments: []dto.EmailAttachment{{Name: "resume.pdf", Content: want}},
+	}, "App")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.payload.Attachments) != 1 || sender.payload.Attachments[0].Name != "resume.pdf" || !bytes.Equal(sender.payload.Attachments[0].Content, want) {
+		t.Fatalf("mailer payload = %+v", sender.payload)
 	}
 }
 

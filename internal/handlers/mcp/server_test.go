@@ -1,7 +1,9 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -139,6 +141,81 @@ func TestMCPDiscoveryAndSendEmail(t *testing.T) {
 	}
 }
 
+func TestMCPSendEmailAttachmentIsDecoded(t *testing.T) {
+	service := &testEmailService{}
+	session := newMCPSession(t, map[string]interfaceemail.EmailSender{"support": service}, "App")
+	want := []byte{0x00, 0x25, 0x50, 0x44, 0x46, 0xff}
+	result := toolCall(t, session, "send_email", map[string]any{
+		"sender_id": "support", "to": []string{"a@example.com"}, "subject": "CV", "text_body": "See attached",
+		"attachments": []map[string]any{{"name": "resume.pdf", "content_base64": base64.StdEncoding.EncodeToString(want)}},
+	})
+	if result.IsError {
+		t.Fatal("valid attachment rejected")
+	}
+	requests, _ := service.snapshot()
+	if len(requests) != 1 {
+		t.Fatalf("send calls = %d", len(requests))
+	}
+	attachments := requests[0].Attachments
+	if len(attachments) != 1 {
+		t.Fatalf("service received %d attachments", len(attachments))
+	}
+	if got := attachments[0].Name; got != "resume.pdf" {
+		t.Fatalf("filename = %q", got)
+	}
+	if got := attachments[0].Content; !bytes.Equal(got, want) {
+		t.Fatalf("attachment bytes = %v, want %v", got, want)
+	}
+}
+
+func TestDecodeEmailAttachmentsRejectsInvalidInput(t *testing.T) {
+	tests := []struct {
+		name       string
+		attachment SendEmailAttachmentInput
+	}{
+		{"empty filename", SendEmailAttachmentInput{ContentBase64: "YQ=="}},
+		{"dot filename", SendEmailAttachmentInput{Name: ".", ContentBase64: "YQ=="}},
+		{"dot dot filename", SendEmailAttachmentInput{Name: "..", ContentBase64: "YQ=="}},
+		{"path separator", SendEmailAttachmentInput{Name: "../resume.pdf", ContentBase64: "YQ=="}},
+		{"backslash", SendEmailAttachmentInput{Name: `folder\\resume.pdf`, ContentBase64: "YQ=="}},
+		{"header control", SendEmailAttachmentInput{Name: "resume\r\nBcc: x", ContentBase64: "YQ=="}},
+		{"overlong filename", SendEmailAttachmentInput{Name: strings.Repeat("a", 256), ContentBase64: "YQ=="}},
+		{"malformed Base64", SendEmailAttachmentInput{Name: "resume.pdf", ContentBase64: "%%%"}},
+		{"empty file", SendEmailAttachmentInput{Name: "resume.pdf"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := decodeEmailAttachments([]SendEmailAttachmentInput{tt.attachment}); err == nil {
+				t.Fatal("invalid attachment accepted")
+			}
+		})
+	}
+}
+
+func TestDecodeEmailAttachmentsEnforcesAggregateLimit(t *testing.T) {
+	half := make([]byte, maxEmailAttachmentBytes/2)
+	first := SendEmailAttachmentInput{Name: "first.bin", ContentBase64: base64.StdEncoding.EncodeToString(half)}
+	second := SendEmailAttachmentInput{Name: "second.bin", ContentBase64: base64.StdEncoding.EncodeToString(half)}
+	got, err := decodeEmailAttachments([]SendEmailAttachmentInput{first, second})
+	if err != nil || len(got) != 2 || len(got[0].Content)+len(got[1].Content) != maxEmailAttachmentBytes {
+		t.Fatalf("aggregate 10 MiB result = %d attachments, %v", len(got), err)
+	}
+	secondOver := SendEmailAttachmentInput{Name: "second.bin", ContentBase64: base64.StdEncoding.EncodeToString(append(half, 0))}
+	if _, err := decodeEmailAttachments([]SendEmailAttachmentInput{first, secondOver}); err == nil {
+		t.Fatal("aggregate over 10 MiB accepted")
+	}
+}
+
+func TestEmailAttachmentsStayOutOfRESTJSON(t *testing.T) {
+	body, err := json.Marshal(dto.SendEmailRequest{Attachments: []dto.EmailAttachment{{Name: "resume.pdf", Content: []byte("pdf")}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "attachments") {
+		t.Fatalf("REST DTO exposed attachments: %s", body)
+	}
+}
+
 func TestMCPRejectsInvalidInput(t *testing.T) {
 	service := &testEmailService{}
 	session := newMCPSession(t, map[string]interfaceemail.EmailSender{"support": service, "arbitrary": service}, "App")
@@ -240,7 +317,8 @@ func TestMCPAuthenticationAndLimits(t *testing.T) {
 		{name: "duplicate", auth: []string{"Bearer test-key", "Bearer test-key"}, want: 401},
 		{name: "valid", auth: []string{"Bearer test-key"}, want: 200},
 		{name: "case insensitive scheme", auth: []string{"bearer test-key"}, want: 200},
-		{name: "oversized", auth: []string{"Bearer test-key"}, body: strings.Repeat(" ", 1<<20) + initializeRequest, want: 413},
+		{name: "large but within limit", auth: []string{"Bearer test-key"}, body: strings.Repeat(" ", 2<<20) + initializeRequest, want: 200},
+		{name: "oversized", auth: []string{"Bearer test-key"}, body: strings.Repeat(" ", 15<<20) + initializeRequest, want: 413},
 		{name: "other path", auth: []string{"Bearer test-key"}, path: "/other", want: 404},
 		{name: "cross origin", auth: []string{"Bearer test-key"}, origin: "https://attacker.example", want: 403},
 	}

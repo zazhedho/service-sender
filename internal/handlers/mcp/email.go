@@ -3,12 +3,15 @@ package mcp
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin/binding"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -20,15 +23,23 @@ import (
 )
 
 type SendEmailInput struct {
-	SenderID       string   `json:"sender_id" jsonschema:"Sender ID from list_email_senders"`
-	To             []string `json:"to" jsonschema:"Recipient email addresses"`
-	Subject        string   `json:"subject" jsonschema:"Email subject, maximum 200 characters"`
-	TextBody       string   `json:"text_body,omitempty" jsonschema:"Plain text content, maximum 10000 characters; text or HTML required"`
-	HTMLBody       string   `json:"html_body,omitempty" jsonschema:"HTML content, maximum 50000 characters; text or HTML required"`
-	ReplyTo        string   `json:"reply_to,omitempty" jsonschema:"Optional reply-to email address"`
-	Type           string   `json:"type,omitempty" jsonschema:"campaign, info or notification; defaults to notification"`
-	IdempotencyKey string   `json:"idempotency_key,omitempty" jsonschema:"Optional correlation key, maximum 100 characters; does not prevent duplicate delivery"`
+	SenderID       string                     `json:"sender_id" jsonschema:"Sender ID from list_email_senders"`
+	To             []string                   `json:"to" jsonschema:"Recipient email addresses"`
+	Subject        string                     `json:"subject" jsonschema:"Email subject, maximum 200 characters"`
+	TextBody       string                     `json:"text_body,omitempty" jsonschema:"Plain text content, maximum 10000 characters; text or HTML required"`
+	HTMLBody       string                     `json:"html_body,omitempty" jsonschema:"HTML content, maximum 50000 characters; text or HTML required"`
+	ReplyTo        string                     `json:"reply_to,omitempty" jsonschema:"Optional reply-to email address"`
+	Type           string                     `json:"type,omitempty" jsonschema:"campaign, info or notification; defaults to notification"`
+	IdempotencyKey string                     `json:"idempotency_key,omitempty" jsonschema:"Optional correlation key, maximum 100 characters; does not prevent duplicate delivery"`
+	Attachments    []SendEmailAttachmentInput `json:"attachments,omitempty" jsonschema:"Optional files; Base64 content, at most 10 MiB decoded total"`
 }
+
+type SendEmailAttachmentInput struct {
+	Name          string `json:"name" jsonschema:"Filename without a path"`
+	ContentBase64 string `json:"content_base64" jsonschema:"File bytes encoded as standard Base64"`
+}
+
+const maxEmailAttachmentBytes = 10 << 20
 
 type SendEmailOutput struct {
 	Status            string                      `json:"status"`
@@ -111,7 +122,12 @@ func registerEmailTools(server *mcpsdk.Server, cfg config.MCPConfig, services ma
 		if svc == nil {
 			return nil, SendEmailOutput{}, errors.New("Email sender is unavailable")
 		}
+		attachments, attachmentErr := decodeEmailAttachments(input.Attachments)
+		if attachmentErr != nil {
+			return nil, SendEmailOutput{}, attachmentErr
+		}
 		request := emailRequest(input)
+		request.Attachments = attachments
 		if input.IdempotencyKey != "" {
 			pair, _ := json.Marshal([2]string{input.SenderID, input.IdempotencyKey})
 			digest := sha256.Sum256(pair)
@@ -146,6 +162,30 @@ func registerEmailTools(server *mcpsdk.Server, cfg config.MCPConfig, services ma
 	if cfg.BrevoAPIKey != "" {
 		registerEmailStatusTool(server, cfg, services)
 	}
+}
+
+func decodeEmailAttachments(inputs []SendEmailAttachmentInput) ([]dto.EmailAttachment, error) {
+	if len(inputs) == 0 {
+		return nil, nil
+	}
+	attachments := make([]dto.EmailAttachment, 0, len(inputs))
+	totalBytes := 0
+	for _, input := range inputs {
+		if !utf8.ValidString(input.Name) || strings.TrimSpace(input.Name) == "" || input.Name == "." || input.Name == ".." || len(input.Name) > 255 ||
+			strings.ContainsAny(input.Name, `/\`) || strings.IndexFunc(input.Name, unicode.IsControl) >= 0 {
+			return nil, errors.New("Invalid attachment; check its filename and Base64 content")
+		}
+		content, err := base64.StdEncoding.Strict().DecodeString(input.ContentBase64)
+		if err != nil || len(content) == 0 {
+			return nil, errors.New("Invalid attachment; check its filename and Base64 content")
+		}
+		if len(content) > maxEmailAttachmentBytes-totalBytes {
+			return nil, errors.New("Attachments exceed the 10 MiB total limit")
+		}
+		totalBytes += len(content)
+		attachments = append(attachments, dto.EmailAttachment{Name: input.Name, Content: content})
+	}
+	return attachments, nil
 }
 
 func registerEmailStatusTool(server *mcpsdk.Server, cfg config.MCPConfig, services map[string]interfaceemail.EmailSender) {

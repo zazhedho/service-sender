@@ -22,7 +22,7 @@ func NewHTTPHandler(cfg config.MCPConfig, services map[string]interfaceemail.Ema
 	transport := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server {
 		return server
 	}, &mcpsdk.StreamableHTTPOptions{
-		Stateless: true, JSONResponse: true, MaxRequestBodyBytes: 1 << 20,
+		Stateless: true, JSONResponse: true, MaxRequestBodyBytes: 15 << 20,
 		PropagateRequestCancellation: true,
 	})
 	protected := http.NewCrossOriginProtection().Handler(transport)

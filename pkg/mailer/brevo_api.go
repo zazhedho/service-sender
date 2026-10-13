@@ -99,7 +99,11 @@ func (c *BrevoAPIClient) sendEmail(ctx context.Context, fromEmail, fromName stri
 		ReplyTo     *struct {
 			Email string `json:"email"`
 		} `json:"replyTo,omitempty"`
-		Headers map[string]string `json:"headers,omitempty"`
+		Headers    map[string]string `json:"headers,omitempty"`
+		Attachment []struct {
+			Name    string `json:"name"`
+			Content []byte `json:"content"`
+		} `json:"attachment,omitempty"`
 	}{}
 	requestBody.Sender.Email = fromEmail
 	requestBody.Sender.Name = fromName
@@ -115,6 +119,12 @@ func (c *BrevoAPIClient) sendEmail(ctx context.Context, fromEmail, fromName stri
 		requestBody.ReplyTo = &struct {
 			Email string `json:"email"`
 		}{Email: payload.ReplyTo}
+	}
+	for _, attachment := range payload.Attachments {
+		requestBody.Attachment = append(requestBody.Attachment, struct {
+			Name    string `json:"name"`
+			Content []byte `json:"content"`
+		}{Name: attachment.Name, Content: attachment.Content})
 	}
 	if payload.AppName != "" || payload.IdempotencyKey != "" {
 		requestBody.Headers = make(map[string]string, 2)

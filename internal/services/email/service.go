@@ -61,6 +61,10 @@ func (s *ServiceEmail) send(ctx context.Context, req dto.SendEmailRequest, appNa
 		return 0, "", nil, false, fmt.Errorf("recipient list is empty")
 	}
 
+	attachments := make([]mailer.EmailAttachment, 0, len(req.Attachments))
+	for _, attachment := range req.Attachments {
+		attachments = append(attachments, mailer.EmailAttachment{Name: attachment.Name, Content: attachment.Content})
+	}
 	payload := mailer.EmailPayload{
 		Type:           req.Type,
 		To:             to,
@@ -70,6 +74,7 @@ func (s *ServiceEmail) send(ctx context.Context, req dto.SendEmailRequest, appNa
 		ReplyTo:        strings.TrimSpace(req.ReplyTo),
 		AppName:        strings.TrimSpace(appName),
 		IdempotencyKey: strings.TrimSpace(req.IdempotencyKey),
+		Attachments:    attachments,
 	}
 
 	if sender, ok := s.Sender.(mailer.TrackedEmailSender); ok {
