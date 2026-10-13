@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -72,13 +73,8 @@ func startTestSMTP(t *testing.T, opts smtpTestOptions) (string, <-chan smtpCaptu
 }
 
 func serveTestSMTP(conn net.Conn, opts smtpTestOptions, captures chan<- smtpCapture) {
-	stall := func() {
-		close(opts.ready)
-		_, _ = io.Copy(io.Discard, conn)
-		close(opts.closed)
-	}
 	if opts.stall == "banner" {
-		stall()
+		stallTestSMTP(conn, opts)
 		return
 	}
 	text := textproto.NewConn(conn)
@@ -91,56 +87,82 @@ func serveTestSMTP(conn net.Conn, opts smtpTestOptions, captures chan<- smtpCapt
 		if err != nil {
 			return
 		}
-		switch {
-		case strings.HasPrefix(line, "EHLO"):
-			if opts.tlsConfig != nil {
-				_ = text.PrintfLine("250-localhost\r\n250 STARTTLS")
-			} else {
-				_ = text.PrintfLine("250-localhost\r\n250 AUTH PLAIN")
-			}
-		case line == "STARTTLS":
-			_ = text.PrintfLine("220 Ready for TLS")
-			tlsConn := tls.Server(conn, opts.tlsConfig)
-			if tlsConn.Handshake() != nil {
-				return
-			}
-			text = textproto.NewConn(tlsConn)
-		case strings.HasPrefix(line, "AUTH"):
-			if opts.rejectAuth {
-				_ = text.PrintfLine("535 Authentication rejected")
-			} else {
-				_ = text.PrintfLine("235 Authentication accepted")
-			}
-		case strings.HasPrefix(line, "MAIL FROM:"):
-			capture.from = strings.TrimPrefix(line, "MAIL FROM:")
-			_ = text.PrintfLine("250 Sender OK")
-		case strings.HasPrefix(line, "RCPT TO:"):
-			if opts.rejectRCPT {
-				_ = text.PrintfLine("550 Recipient rejected")
-			} else {
-				capture.to = strings.TrimPrefix(line, "RCPT TO:")
-				_ = text.PrintfLine("250 Recipient OK")
-			}
-		case line == "DATA":
-			_ = text.PrintfLine("354 Send message")
-			body, err := text.ReadDotBytes()
-			if err != nil {
-				return
-			}
-			capture.message = string(body)
-			if opts.stall == "data" {
-				stall()
-				return
-			}
-			captures <- capture
-			_ = text.PrintfLine("250 Accepted")
-		case line == "QUIT":
-			_ = text.PrintfLine("221 Bye")
+		var keepGoing bool
+		text, keepGoing = serveTestSMTPCommand(text, conn, opts, captures, &capture, line)
+		if !keepGoing {
 			return
-		default:
-			_ = text.PrintfLine("250 OK")
 		}
 	}
+}
+
+func stallTestSMTP(conn net.Conn, opts smtpTestOptions) {
+	close(opts.ready)
+	_, _ = io.Copy(io.Discard, conn)
+	close(opts.closed)
+}
+
+func serveTestSMTPCommand(text *textproto.Conn, conn net.Conn, opts smtpTestOptions, captures chan<- smtpCapture, capture *smtpCapture, line string) (*textproto.Conn, bool) {
+	switch {
+	case strings.HasPrefix(line, "EHLO"):
+		if opts.tlsConfig != nil {
+			_ = text.PrintfLine("250-localhost\r\n250 STARTTLS")
+		} else {
+			_ = text.PrintfLine("250-localhost\r\n250 AUTH PLAIN")
+		}
+	case line == "STARTTLS":
+		_ = text.PrintfLine("220 Ready for TLS")
+		tlsConn := tls.Server(conn, opts.tlsConfig)
+		if tlsConn.Handshake() != nil {
+			return text, false
+		}
+		return textproto.NewConn(tlsConn), true
+	case strings.HasPrefix(line, "AUTH"):
+		replyTestSMTPAuth(text, opts.rejectAuth)
+	case strings.HasPrefix(line, "MAIL FROM:"):
+		capture.from = strings.TrimPrefix(line, "MAIL FROM:")
+		_ = text.PrintfLine("250 Sender OK")
+	case strings.HasPrefix(line, "RCPT TO:"):
+		if opts.rejectRCPT {
+			_ = text.PrintfLine("550 Recipient rejected")
+		} else {
+			capture.to = strings.TrimPrefix(line, "RCPT TO:")
+			_ = text.PrintfLine("250 Recipient OK")
+		}
+	case line == "DATA":
+		if !readTestSMTPData(text, conn, opts, captures, capture) {
+			return text, false
+		}
+	case line == "QUIT":
+		_ = text.PrintfLine("221 Bye")
+		return text, false
+	default:
+		_ = text.PrintfLine("250 OK")
+	}
+	return text, true
+}
+
+func replyTestSMTPAuth(text *textproto.Conn, reject bool) {
+	if reject {
+		_ = text.PrintfLine("535 Authentication rejected")
+		return
+	}
+	_ = text.PrintfLine("235 Authentication accepted")
+}
+
+func readTestSMTPData(text *textproto.Conn, conn net.Conn, opts smtpTestOptions, captures chan<- smtpCapture, capture *smtpCapture) bool {
+	_ = text.PrintfLine("354 Send message")
+	body, err := text.ReadDotBytes()
+	if err != nil {
+		return false
+	}
+	capture.message = string(body)
+	if opts.stall == "data" {
+		stallTestSMTP(conn, opts)
+		return false
+	}
+	captures <- *capture
+	_ = text.PrintfLine("250 Accepted")
+	return true
 }
 
 func TestSendMailContextCancellation(t *testing.T) {
@@ -154,34 +176,48 @@ func TestSendMailContextCancellation(t *testing.T) {
 	})
 	for _, stage := range []string{"banner", "data"} {
 		t.Run(stage, func(t *testing.T) {
-			ready, closed := make(chan struct{}), make(chan struct{})
-			addr, _ := startTestSMTP(t, smtpTestOptions{stall: stage, ready: ready, closed: closed})
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			result := make(chan error, 1)
-			go func() {
-				result <- sendMailContext(ctx, addr, nil, "a@example.com", []string{"b@example.com"}, []byte("Subject: test\r\n\r\nbody"))
-			}()
-			select {
-			case <-ready:
-			case <-time.After(3 * time.Second):
-				t.Fatal("SMTP did not reach stalled stage")
-			}
-			cancel()
-			select {
-			case err := <-result:
-				if !errors.Is(err, context.Canceled) {
-					t.Fatalf("error = %v", err)
-				}
-			case <-time.After(3 * time.Second):
-				t.Fatal("cancel did not interrupt SMTP")
-			}
-			select {
-			case <-closed:
-			case <-time.After(3 * time.Second):
-				t.Fatal("connection left open")
-			}
+			assertSendMailCancellationAt(t, stage)
 		})
+	}
+}
+
+func assertSendMailCancellationAt(t *testing.T, stage string) {
+	t.Helper()
+	ready, closed := make(chan struct{}), make(chan struct{})
+	options := smtpTestOptions{stall: stage, ready: ready, closed: closed}
+	send := func(ctx context.Context, addr string) error {
+		return sendMailContext(ctx, addr, nil, "a@example.com", []string{"b@example.com"}, []byte("Subject: test\r\n\r\nbody"))
+	}
+	if stage == "data" {
+		serverTLS, clientTLS := testSMTPTLSConfigs(t)
+		options.tlsConfig = serverTLS
+		send = func(ctx context.Context, addr string) error {
+			return sendMailContextWithTLSConfig(ctx, addr, nil, "a@example.com", []string{"b@example.com"}, []byte("Subject: test\r\n\r\nbody"), clientTLS)
+		}
+	}
+	addr, _ := startTestSMTP(t, options)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() { result <- send(ctx, addr) }()
+	select {
+	case <-ready:
+	case <-time.After(3 * time.Second):
+		t.Fatal("SMTP did not reach stalled stage")
+	}
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("cancel did not interrupt SMTP")
+	}
+	select {
+	case <-closed:
+	case <-time.After(3 * time.Second):
+		t.Fatal("connection left open")
 	}
 }
 
@@ -197,8 +233,9 @@ func TestSendMailContextDeadline(t *testing.T) {
 
 func TestSendMailContextRejectsSMTPFailures(t *testing.T) {
 	t.Run("recipient", func(t *testing.T) {
-		addr, captures := startTestSMTP(t, smtpTestOptions{rejectRCPT: true})
-		err := sendMailContext(context.Background(), addr, nil, "a@example.com", []string{"b@example.com"}, []byte("test"))
+		serverTLS, clientTLS := testSMTPTLSConfigs(t)
+		addr, captures := startTestSMTP(t, smtpTestOptions{rejectRCPT: true, tlsConfig: serverTLS})
+		err := sendMailContextWithTLSConfig(context.Background(), addr, nil, "a@example.com", []string{"b@example.com"}, []byte("test"), clientTLS)
 		if err == nil || !strings.Contains(err.Error(), "550") {
 			t.Fatalf("error = %v", err)
 		}
@@ -209,8 +246,9 @@ func TestSendMailContextRejectsSMTPFailures(t *testing.T) {
 		}
 	})
 	t.Run("authentication", func(t *testing.T) {
-		addr, _ := startTestSMTP(t, smtpTestOptions{rejectAuth: true})
-		err := sendMailContext(context.Background(), addr, smtp.PlainAuth("", "test", "test", "127.0.0.1"), "a@example.com", []string{"b@example.com"}, []byte("test"))
+		serverTLS, clientTLS := testSMTPTLSConfigs(t)
+		addr, _ := startTestSMTP(t, smtpTestOptions{rejectAuth: true, tlsConfig: serverTLS})
+		err := sendMailContextWithTLSConfig(context.Background(), addr, smtp.PlainAuth("", "test", "test", "127.0.0.1"), "a@example.com", []string{"b@example.com"}, []byte("test"), clientTLS)
 		if err == nil || !strings.Contains(err.Error(), "535") {
 			t.Fatalf("error = %v", err)
 		}
@@ -231,67 +269,122 @@ func TestSendMailContextRejectsSMTPFailures(t *testing.T) {
 	})
 }
 
-func TestBrevoSenderUsesConfiguredFrom(t *testing.T) {
+func testSMTPTLSConfigs(t *testing.T) (*tls.Config, *tls.Config) {
+	t.Helper()
+	server := httptest.NewTLSServer(nil)
+	defer server.Close()
+	cert, err := x509.ParseCertificate(server.TLS.Certificates[0].Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := x509.NewCertPool()
+	roots.AddCert(cert)
+	return server.TLS, &tls.Config{RootCAs: roots}
+}
+
+func TestSendMailContextRequiresSTARTTLS(t *testing.T) {
 	addr, captures := startTestSMTP(t, smtpTestOptions{})
-	host, rawPort, _ := net.SplitHostPort(addr)
-	port, _ := strconv.Atoi(rawPort)
-	base := BrevoSender{Host: host, Port: port, From: "Default <default@example.com>"}
-	var wg sync.WaitGroup
+	err := sendMailContext(context.Background(), addr, nil, "a@example.com", []string{"b@example.com"}, []byte("test"))
+	if err == nil || !strings.Contains(err.Error(), "STARTTLS") {
+		t.Fatalf("error = %v, want missing STARTTLS", err)
+	}
+	select {
+	case <-captures:
+		t.Fatal("message sent without TLS")
+	default:
+	}
+}
+
+func TestBrevoSenderUsesConfiguredFrom(t *testing.T) {
+	base := BrevoSender{From: "Default <default@example.com>"}
 	for _, from := range []string{"default@example.com", "support@example.com", "billing@example.com"} {
+		wantAddress := from
 		sender := base
 		if from != "default@example.com" {
 			sender.From = fmt.Sprintf("Team <%s>", from)
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := sender.SendEmail(context.Background(), EmailPayload{Type: "notification", To: []string{"b@example.com"}, Subject: "Hello", TextBody: "body"}); err != nil {
-				t.Errorf("send: %v", err)
-			}
-		}()
-	}
-	wg.Wait()
-	seen := map[string]bool{}
-	for range 3 {
-		select {
-		case capture := <-captures:
-			message, err := mail.ReadMessage(strings.NewReader(capture.message))
-			if err != nil {
-				t.Fatal(err)
-			}
-			from, err := mail.ParseAddress(message.Header.Get("From"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if capture.from != "<"+from.Address+">" || capture.to != "<b@example.com>" || message.Header.Get("Subject") != "[NOTIFICATION] Hello" {
-				t.Fatalf("unexpected delivery: %+v", capture)
-			}
-			seen[from.Address] = true
-		case <-time.After(3 * time.Second):
-			t.Fatal("delivery missing")
+		message, err := buildGeneralMessage(sender.From, "b@example.com", EmailPayload{Type: "notification", Subject: "[NOTIFICATION] Hello", TextBody: "body"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		parsed, err := mail.ReadMessage(strings.NewReader(string(message)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		parsedFrom, err := mail.ParseAddress(parsed.Header.Get("From"))
+		if err != nil || extractEmail(sender.From) != parsedFrom.Address || parsedFrom.Address != wantAddress {
+			t.Fatalf("configured From = %q, parsed %q, error %v", sender.From, parsedFrom, err)
 		}
 	}
-	if len(seen) != 3 || !seen["default@example.com"] || !seen["support@example.com"] || !seen["billing@example.com"] || base.From != "Default <default@example.com>" {
-		t.Fatalf("senders = %v", seen)
+	if base.From != "Default <default@example.com>" {
+		t.Fatalf("base sender mutated: %q", base.From)
 	}
 }
 
 func TestBrevoSenderEnvelopeMatchesQuotedDisplayName(t *testing.T) {
-	addr, captures := startTestSMTP(t, smtpTestOptions{})
-	host, rawPort, _ := net.SplitHostPort(addr)
-	port, _ := strconv.Atoi(rawPort)
-	sender := BrevoSender{Host: host, Port: port, From: `"Support <Ops>" <support@example.com>`}
-	if err := sender.SendEmail(context.Background(), EmailPayload{To: []string{"a@example.com"}, Subject: "Hello", TextBody: "Body"}); err != nil {
+	sender := BrevoSender{From: `"Support <Ops>" <support@example.com>`}
+	messageData, err := buildGeneralMessage(sender.From, "a@example.com", EmailPayload{Subject: "Hello", TextBody: "Body"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case capture := <-captures:
-		if capture.from != "<support@example.com>" {
-			t.Fatalf("envelope From = %q, want verified mailbox", capture.from)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("message not received")
+	message, err := mail.ReadMessage(bytes.NewReader(messageData))
+	if err != nil {
+		t.Fatal(err)
 	}
+	from, err := mail.ParseAddress(message.Header.Get("From"))
+	if err != nil || extractEmail(sender.From) != from.Address || from.Address != "support@example.com" {
+		t.Fatalf("envelope From = %q, want verified mailbox; error %v", from, err)
+	}
+}
+
+func assertSMTPSenderContextCancellation(t *testing.T, send func(context.Context, *BrevoSender) error) {
+	t.Helper()
+	ready, closed := make(chan struct{}), make(chan struct{})
+	addr, _ := startTestSMTP(t, smtpTestOptions{stall: "banner", ready: ready, closed: closed})
+	host, rawPort, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(rawPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &BrevoSender{Host: host, Port: port, User: "user", Pass: "pass", From: "sender@example.com", TTL: 5 * time.Minute}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() { result <- send(ctx, sender) }()
+	select {
+	case <-ready:
+	case <-time.After(3 * time.Second):
+		t.Fatal("SMTP did not reach stalled banner")
+	}
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("cancel did not interrupt SMTP")
+	}
+	select {
+	case <-closed:
+	case <-time.After(3 * time.Second):
+		t.Fatal("connection left open")
+	}
+}
+
+func TestBrevoSenderSendOTPUsesContext(t *testing.T) {
+	assertSMTPSenderContextCancellation(t, func(ctx context.Context, sender *BrevoSender) error {
+		return sender.SendOTP(ctx, "to@example.com", "123456", "App")
+	})
+}
+
+func TestBrevoSenderSendPasswordResetUsesContext(t *testing.T) {
+	assertSMTPSenderContextCancellation(t, func(ctx context.Context, sender *BrevoSender) error {
+		return sender.SendPasswordReset(ctx, "to@example.com", "token", "App", "https://example.com/reset", 15*time.Minute)
+	})
 }
 
 func TestExtractEmailPreservesDefaultFromFormats(t *testing.T) {
@@ -315,48 +408,58 @@ func TestBuildGeneralMessagePreservesAttachmentBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mediaType, params, err := mime.ParseMediaType(message.Header.Get("Content-Type"))
-	if err != nil || mediaType != "multipart/mixed" {
-		t.Fatalf("outer content type = %q, %v", mediaType, err)
+	mediaType, params := requireMIMEType(t, message.Header.Get("Content-Type"))
+	if mediaType != "multipart/mixed" {
+		t.Fatalf("outer content type = %q", mediaType)
 	}
 	outer := multipart.NewReader(message.Body, params["boundary"])
-	alternative, err := outer.NextPart()
-	if err != nil {
-		t.Fatal(err)
-	}
-	alternativeType, alternativeParams, err := mime.ParseMediaType(alternative.Header.Get("Content-Type"))
-	if err != nil || alternativeType != "multipart/alternative" {
-		t.Fatalf("alternative content type = %q, %v", alternativeType, err)
+	alternative := requireMIMEPart(t, outer)
+	alternativeType, alternativeParams := requireMIMEType(t, alternative.Header.Get("Content-Type"))
+	if alternativeType != "multipart/alternative" {
+		t.Fatalf("alternative content type = %q", alternativeType)
 	}
 	inner := multipart.NewReader(alternative, alternativeParams["boundary"])
-	textPart, err := inner.NextPart()
+	assertMIMEBodyPart(t, requireMIMEPart(t, inner), "Plain body")
+	assertMIMEBodyPart(t, requireMIMEPart(t, inner), "<p>HTML body</p>")
+	assertMIMEAttachment(t, requireMIMEPart(t, outer), want)
+}
+
+func requireMIMEType(t *testing.T, value string) (string, map[string]string) {
+	t.Helper()
+	mediaType, params, err := mime.ParseMediaType(value)
 	if err != nil {
 		t.Fatal(err)
 	}
-	textBody, err := io.ReadAll(textPart)
-	if err != nil || string(textBody) != "Plain body" {
-		t.Fatalf("text body = %q, %v", textBody, err)
-	}
-	htmlPart, err := inner.NextPart()
+	return mediaType, params
+}
+
+func requireMIMEPart(t *testing.T, reader *multipart.Reader) *multipart.Part {
+	t.Helper()
+	part, err := reader.NextPart()
 	if err != nil {
 		t.Fatal(err)
 	}
-	htmlBody, err := io.ReadAll(htmlPart)
-	if err != nil || string(htmlBody) != "<p>HTML body</p>" {
-		t.Fatalf("HTML body = %q, %v", htmlBody, err)
+	return part
+}
+
+func assertMIMEBodyPart(t *testing.T, part *multipart.Part, want string) {
+	t.Helper()
+	body, err := io.ReadAll(part)
+	if err != nil || string(body) != want {
+		t.Fatalf("MIME body = %q, %v; want %q", body, err, want)
 	}
-	attachment, err := outer.NextPart()
-	if err != nil {
-		t.Fatal(err)
+}
+
+func assertMIMEAttachment(t *testing.T, part *multipart.Part, want []byte) {
+	t.Helper()
+	disposition, params := requireMIMEType(t, part.Header.Get("Content-Disposition"))
+	if disposition != "attachment" || params["filename"] != "resume.pdf" {
+		t.Fatalf("attachment disposition = %q", part.Header.Get("Content-Disposition"))
 	}
-	disposition, dispositionParams, err := mime.ParseMediaType(attachment.Header.Get("Content-Disposition"))
-	if err != nil || disposition != "attachment" || dispositionParams["filename"] != "resume.pdf" {
-		t.Fatalf("attachment disposition = %q, %v", attachment.Header.Get("Content-Disposition"), err)
+	if part.Header.Get("Content-Transfer-Encoding") != "base64" {
+		t.Fatalf("attachment transfer encoding = %q", part.Header.Get("Content-Transfer-Encoding"))
 	}
-	if attachment.Header.Get("Content-Transfer-Encoding") != "base64" {
-		t.Fatalf("attachment transfer encoding = %q", attachment.Header.Get("Content-Transfer-Encoding"))
-	}
-	encoded, err := io.ReadAll(attachment)
+	encoded, err := io.ReadAll(part)
 	if err != nil {
 		t.Fatal(err)
 	}

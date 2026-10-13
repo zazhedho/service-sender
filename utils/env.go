@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func GetEnv(key string, def interface{}) interface{} {
+func GetEnv(key string, def any) any {
 	v, isset := os.LookupEnv(key)
 	if !isset {
 		return def
@@ -26,9 +26,8 @@ func GetEnv(key string, def interface{}) interface{} {
 
 		if i, err := strconv.Atoi(v); err == nil && i > 0 {
 			return time.Duration(i)
-		} else {
-			return time.Minute
 		}
+		return time.Minute
 	case bool:
 		if b, err := strconv.ParseBool(v); err == nil {
 			return b

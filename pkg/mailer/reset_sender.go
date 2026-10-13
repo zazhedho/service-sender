@@ -1,7 +1,10 @@
 package mailer
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 type PasswordResetSender interface {
-	SendPasswordReset(to, token, appName, resetURL string, ttl time.Duration) error
+	SendPasswordReset(ctx context.Context, to, token, appName, resetURL string, ttl time.Duration) error
 }

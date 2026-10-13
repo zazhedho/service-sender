@@ -165,7 +165,7 @@ func (h *HandlerUser) Login(ctx *gin.Context) {
 	h.resetLoginFailures(ctx, loginIdentifier, logPrefix)
 	h.createLoginSession(ctx, req.Email, token, logPrefix)
 
-	res := response.Response(http.StatusOK, "success", logId, map[string]interface{}{"token": token})
+	res := response.Response(http.StatusOK, "success", logId, map[string]any{"token": token})
 	ctx.JSON(http.StatusOK, res)
 }
 

@@ -218,7 +218,7 @@ func (s *ServiceUser) GetUserByEmail(email string) (domainuser.Users, error) {
 	return s.UserRepo.GetByEmail(email)
 }
 
-func (s *ServiceUser) GetUserByAuth(id string) (map[string]interface{}, error) {
+func (s *ServiceUser) GetUserByAuth(id string) (map[string]any, error) {
 	user, err := s.UserRepo.GetByID(id)
 	if err != nil {
 		return nil, err
@@ -226,7 +226,7 @@ func (s *ServiceUser) GetUserByAuth(id string) (map[string]interface{}, error) {
 
 	role, err := s.RoleRepo.GetByName(user.Role)
 	if err != nil {
-		return map[string]interface{}{
+		return map[string]any{
 			"id":          user.Id,
 			"name":        user.Name,
 			"email":       user.Email,
@@ -240,7 +240,7 @@ func (s *ServiceUser) GetUserByAuth(id string) (map[string]interface{}, error) {
 
 	permissionIds, err := s.RoleRepo.GetRolePermissions(role.Id)
 	if err != nil {
-		return map[string]interface{}{
+		return map[string]any{
 			"id":          user.Id,
 			"name":        user.Name,
 			"email":       user.Email,
@@ -260,7 +260,7 @@ func (s *ServiceUser) GetUserByAuth(id string) (map[string]interface{}, error) {
 		}
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"id":          user.Id,
 		"name":        user.Name,
 		"email":       user.Email,

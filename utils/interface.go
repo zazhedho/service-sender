@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func InterfaceString(data interface{}) string {
+func InterfaceString(data any) string {
 	if data == nil {
 		return ""
 	}
@@ -21,7 +21,7 @@ func InterfaceString(data interface{}) string {
 	}
 }
 
-func ConvertValuesToString(filters map[string]interface{}, keys ...string) map[string]interface{} {
+func ConvertValuesToString(filters map[string]any, keys ...string) map[string]any {
 	if filters == nil {
 		return nil
 	}
@@ -30,7 +30,7 @@ func ConvertValuesToString(filters map[string]interface{}, keys ...string) map[s
 		target[k] = struct{}{}
 	}
 
-	out := make(map[string]interface{}, len(filters))
+	out := make(map[string]any, len(filters))
 	for k, v := range filters {
 		if len(target) == 0 {
 			out[k] = toString(v)
@@ -45,7 +45,7 @@ func ConvertValuesToString(filters map[string]interface{}, keys ...string) map[s
 	return out
 }
 
-func toString(v interface{}) string {
+func toString(v any) string {
 	switch t := v.(type) {
 	case nil:
 		return ""
@@ -55,7 +55,7 @@ func toString(v interface{}) string {
 		return t.String()
 	case []string:
 		return strings.Join(t, ",")
-	case []interface{}:
+	case []any:
 		b, _ := json.Marshal(t)
 		return string(b)
 	default:

@@ -88,7 +88,7 @@ func serveHTTPServers(ctx context.Context, api *http.Server, mcpServer *http.Ser
 		}
 	}
 	stop()
-	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	shutdownResults := make(chan error, len(servers))
 	for _, server := range servers {

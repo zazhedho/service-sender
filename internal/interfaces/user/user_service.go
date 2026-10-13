@@ -13,7 +13,7 @@ type ServiceUserInterface interface {
 	LogoutUser(token string) error
 	GetUserById(id string) (domainuser.Users, error)
 	GetUserByEmail(email string) (domainuser.Users, error)
-	GetUserByAuth(id string) (map[string]interface{}, error)
+	GetUserByAuth(id string) (map[string]any, error)
 	GetAllUsers(params filter.BaseParams, currentUserRole string) ([]domainuser.Users, int64, error)
 	Update(id, role string, req dto.UserUpdate) (domainuser.Users, error)
 	ChangePassword(id string, req dto.ChangePassword) (domainuser.Users, error)

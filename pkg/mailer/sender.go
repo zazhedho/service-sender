@@ -1,5 +1,7 @@
 package mailer
 
+import "context"
+
 type Sender interface {
-	SendOTP(to, code, appName string) error
+	SendOTP(ctx context.Context, to, code, appName string) error
 }

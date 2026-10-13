@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-func GetAppConf(key string, def interface{}, rdbCache *redis.Client) interface{} {
+func GetAppConf(key string, def any, rdbCache *redis.Client) any {
 	cacheKey := utils.RedisAppConf
 	appConf := make(map[string]string)
 	var cache, getNewConfig bool
@@ -50,7 +50,7 @@ func readCachedAppConf(rdbCache *redis.Client, cacheKey string) (map[string]stri
 		return appConf, errors.Is(err, redis.Nil)
 	}
 	if err = json.Unmarshal([]byte(jsonAppConf), &appConf); err != nil {
-		logger.WriteLog(logger.LogLevelError, fmt.Sprintf("utils.GetAppConf; Unmarshal conf from cache; %s; error: %+v;", jsonAppConf, err))
+		logger.WriteLog(logger.LogLevelError, "utils.GetAppConf; invalid cached application configuration; loading from Consul")
 		return appConf, true
 	}
 	return appConf, false

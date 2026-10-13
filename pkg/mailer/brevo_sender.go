@@ -24,6 +24,7 @@ const (
 	mimeFromHeader                 = "From: "
 	mimeSubjectHeader              = "Subject: "
 	mimeVersionHeader              = "MIME-Version: 1.0\r\n"
+	mimeContentTypeHeader          = "Content-Type"
 	mimeMultipartAlternativeHeader = "Content-Type: multipart/alternative; boundary="
 	mimeHeaderBodySeparator        = "\r\n\r\n"
 	mimeTextPlainHeader            = "Content-Type: text/plain; charset=UTF-8\r\n\r\n"
@@ -93,7 +94,7 @@ func NewBrevoSenderFromEnv() (*BrevoSender, error) {
 	}, nil
 }
 
-func (s *BrevoSender) SendOTP(to, code, appName string) error {
+func (s *BrevoSender) SendOTP(ctx context.Context, to, code, appName string) error {
 	addr := fmt.Sprintf("%s:%d", s.Host, s.Port)
 	auth := smtp.PlainAuth("", s.User, s.Pass, s.Host)
 
@@ -102,7 +103,7 @@ func (s *BrevoSender) SendOTP(to, code, appName string) error {
 	}
 	msg := buildOTPMessage(s.From, to, s.Subject, appName, code, s.TTL)
 
-	return smtp.SendMail(addr, auth, extractEmail(s.From), []string{to}, msg)
+	return sendMailContext(ctx, addr, auth, extractEmail(s.From), []string{to}, msg)
 }
 
 func buildOTPMessage(from, to, subject, appName, code string, ttl time.Duration) []byte {
@@ -202,7 +203,7 @@ func buildOTPMessage(from, to, subject, appName, code string, ttl time.Duration)
 	return buf.Bytes()
 }
 
-func (s *BrevoSender) SendPasswordReset(to, token, appName, resetURL string, ttl time.Duration) error {
+func (s *BrevoSender) SendPasswordReset(ctx context.Context, to, token, appName, resetURL string, ttl time.Duration) error {
 	addr := fmt.Sprintf("%s:%d", s.Host, s.Port)
 	auth := smtp.PlainAuth("", s.User, s.Pass, s.Host)
 
@@ -215,7 +216,7 @@ func (s *BrevoSender) SendPasswordReset(to, token, appName, resetURL string, ttl
 	}
 
 	msg := buildPasswordResetMessage(s.From, to, subject, appName, token, resetURL, ttl)
-	return smtp.SendMail(addr, auth, extractEmail(s.From), []string{to}, msg)
+	return sendMailContext(ctx, addr, auth, extractEmail(s.From), []string{to}, msg)
 }
 
 func buildPasswordResetMessage(from, to, subject, appName, token, resetURL string, ttl time.Duration) []byte {
@@ -434,70 +435,89 @@ func buildGeneralMessageWithAttachments(from, to string, payload EmailPayload, t
 	if mixedType == "" {
 		return nil, fmt.Errorf("could not encode MIME boundary")
 	}
-	buf.WriteString("Content-Type: " + mixedType + mimeHeaderBodySeparator)
+	buf.WriteString(mimeContentTypeHeader + ": " + mixedType + mimeHeaderBodySeparator)
+	if err := writeMIMEAlternative(mixed, textBody, htmlBody); err != nil {
+		return nil, err
+	}
+	if err := writeMIMEAttachments(mixed, payload.Attachments); err != nil {
+		return nil, err
+	}
+	if err := mixed.Close(); err != nil {
+		return nil, fmt.Errorf("could not close MIME message: %w", err)
+	}
+	return buf.Bytes(), nil
+}
 
-	alternativeBoundary := multipart.NewWriter(io.Discard).Boundary()
-	alternativeType := mime.FormatMediaType("multipart/alternative", map[string]string{"boundary": alternativeBoundary})
-	if alternativeType == "" {
-		return nil, fmt.Errorf("could not encode MIME alternative boundary")
+func writeMIMEAlternative(mixed *multipart.Writer, textBody, htmlBody string) error {
+	boundary := multipart.NewWriter(io.Discard).Boundary()
+	contentType := mime.FormatMediaType("multipart/alternative", map[string]string{"boundary": boundary})
+	if contentType == "" {
+		return fmt.Errorf("could not encode MIME alternative boundary")
 	}
-	alternativeHeader := make(textproto.MIMEHeader)
-	alternativeHeader.Set("Content-Type", alternativeType)
-	alternativePart, err := mixed.CreatePart(alternativeHeader)
+	header := make(textproto.MIMEHeader)
+	header.Set(mimeContentTypeHeader, contentType)
+	part, err := mixed.CreatePart(header)
 	if err != nil {
-		return nil, fmt.Errorf("could not create MIME alternative: %w", err)
+		return fmt.Errorf("could not create MIME alternative: %w", err)
 	}
-	alternative := multipart.NewWriter(alternativePart)
-	if err := alternative.SetBoundary(alternativeBoundary); err != nil {
-		return nil, fmt.Errorf("could not set MIME alternative boundary: %w", err)
+	alternative := multipart.NewWriter(part)
+	if err := alternative.SetBoundary(boundary); err != nil {
+		return fmt.Errorf("could not set MIME alternative boundary: %w", err)
 	}
 	for _, body := range []struct{ contentType, value string }{
 		{"text/plain; charset=UTF-8", textBody},
 		{"text/html; charset=UTF-8", htmlBody},
 	} {
-		header := make(textproto.MIMEHeader)
-		header.Set("Content-Type", body.contentType)
-		part, err := alternative.CreatePart(header)
-		if err != nil {
-			return nil, fmt.Errorf("could not create MIME body part: %w", err)
-		}
-		if _, err := io.WriteString(part, body.value); err != nil {
-			return nil, fmt.Errorf("could not write MIME body part: %w", err)
+		if err := writeMIMEPart(alternative, body.contentType, body.value); err != nil {
+			return err
 		}
 	}
 	if err := alternative.Close(); err != nil {
-		return nil, fmt.Errorf("could not close MIME alternative: %w", err)
+		return fmt.Errorf("could not close MIME alternative: %w", err)
 	}
+	return nil
+}
 
-	for _, attachment := range payload.Attachments {
+func writeMIMEPart(writer *multipart.Writer, contentType, value string) error {
+	header := make(textproto.MIMEHeader)
+	header.Set(mimeContentTypeHeader, contentType)
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		return fmt.Errorf("could not create MIME body part: %w", err)
+	}
+	if _, err := io.WriteString(part, value); err != nil {
+		return fmt.Errorf("could not write MIME body part: %w", err)
+	}
+	return nil
+}
+
+func writeMIMEAttachments(writer *multipart.Writer, attachments []EmailAttachment) error {
+	for _, attachment := range attachments {
 		contentType := mime.TypeByExtension(filepath.Ext(attachment.Name))
 		if contentType == "" {
 			contentType = "application/octet-stream"
 		}
 		disposition := mime.FormatMediaType("attachment", map[string]string{"filename": attachment.Name})
 		if disposition == "" {
-			return nil, fmt.Errorf("invalid MIME attachment filename")
+			return fmt.Errorf("invalid MIME attachment filename")
 		}
 		header := make(textproto.MIMEHeader)
-		header.Set("Content-Type", contentType)
+		header.Set(mimeContentTypeHeader, contentType)
 		header.Set("Content-Disposition", disposition)
 		header.Set("Content-Transfer-Encoding", "base64")
-		part, err := mixed.CreatePart(header)
+		part, err := writer.CreatePart(header)
 		if err != nil {
-			return nil, fmt.Errorf("could not create MIME attachment: %w", err)
+			return fmt.Errorf("could not create MIME attachment: %w", err)
 		}
 		encoder := base64.NewEncoder(base64.StdEncoding, &mimeBase64LineWriter{writer: part})
 		if _, err := encoder.Write(attachment.Content); err != nil {
-			return nil, fmt.Errorf("could not encode MIME attachment: %w", err)
+			return fmt.Errorf("could not encode MIME attachment: %w", err)
 		}
 		if err := encoder.Close(); err != nil {
-			return nil, fmt.Errorf("could not finish MIME attachment: %w", err)
+			return fmt.Errorf("could not finish MIME attachment: %w", err)
 		}
 	}
-	if err := mixed.Close(); err != nil {
-		return nil, fmt.Errorf("could not close MIME message: %w", err)
-	}
-	return buf.Bytes(), nil
+	return nil
 }
 
 type mimeBase64LineWriter struct {

@@ -18,30 +18,30 @@ type Errors struct {
 }
 
 type ApiResponse struct {
-	Id      uuid.UUID   `json:"log_id"`
-	Code    int         `json:"code,omitempty"`
-	Status  bool        `json:"status"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
-	Error   interface{} `json:"error,omitempty"`
+	Id      uuid.UUID `json:"log_id"`
+	Code    int       `json:"code,omitempty"`
+	Status  bool      `json:"status"`
+	Message string    `json:"message"`
+	Data    any       `json:"data,omitempty"`
+	Error   any       `json:"error,omitempty"`
 }
 
 type PaginatedResponse struct {
-	LogID       string      `json:"log_id"`
-	Code        int         `json:"code"`
-	Status      bool        `json:"status"`
-	Message     string      `json:"message"`
-	TotalData   int         `json:"total_data"`
-	TotalPages  int         `json:"total_pages"`
-	CurrentPage int         `json:"current_page"`
-	NextPage    bool        `json:"next_page"`
-	PrevPage    bool        `json:"prev_page"`
-	Limit       int         `json:"limit"`
-	Data        interface{} `json:"data,omitempty"`
-	Error       interface{} `json:"error,omitempty"`
+	LogID       string `json:"log_id"`
+	Code        int    `json:"code"`
+	Status      bool   `json:"status"`
+	Message     string `json:"message"`
+	TotalData   int    `json:"total_data"`
+	TotalPages  int    `json:"total_pages"`
+	CurrentPage int    `json:"current_page"`
+	NextPage    bool   `json:"next_page"`
+	PrevPage    bool   `json:"prev_page"`
+	Limit       int    `json:"limit"`
+	Data        any    `json:"data,omitempty"`
+	Error       any    `json:"error,omitempty"`
 }
 
-func Response(code int, msg string, logId uuid.UUID, data interface{}) *ApiResponse {
+func Response(code int, msg string, logId uuid.UUID, data any) *ApiResponse {
 	res := new(ApiResponse)
 	res.Id = logId
 	res.Message = msg
@@ -51,7 +51,7 @@ func Response(code int, msg string, logId uuid.UUID, data interface{}) *ApiRespo
 	return res
 }
 
-func PaginationResponse(code, total, page, perPage int, logId uuid.UUID, data interface{}) *PaginatedResponse {
+func PaginationResponse(code, total, page, perPage int, logId uuid.UUID, data any) *PaginatedResponse {
 	res := new(PaginatedResponse)
 
 	var totalPages int

@@ -14,7 +14,10 @@ import (
 	"time"
 )
 
-const brevoAPIBaseURL = "https://api.brevo.com/v3"
+const (
+	brevoAPIBaseURL      = "https://api.brevo.com/v3"
+	brevoJSONContentType = "application/json"
+)
 
 type BrevoAPIClient struct {
 	apiKey string
@@ -78,6 +81,38 @@ func (s *BrevoAPISender) SendTrackedEmail(ctx context.Context, payload EmailPayl
 }
 
 func (c *BrevoAPIClient) sendEmail(ctx context.Context, fromEmail, fromName string, payload EmailPayload) (string, error) {
+	if c == nil || c.apiKey == "" {
+		return "", errors.New("Brevo API is not configured")
+	}
+	body, err := marshalBrevoEmailRequest(fromEmail, fromName, payload)
+	if err != nil {
+		return "", err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, brevoAPIBaseURL+"/smtp/email", bytes.NewReader(body))
+	if err != nil {
+		return "", errors.New("could not create Brevo request")
+	}
+	request.Header.Set("api-key", c.apiKey)
+	request.Header.Set("Accept", brevoJSONContentType)
+	request.Header.Set("Content-Type", brevoJSONContentType)
+	response, err := c.http.Do(request)
+	if err != nil {
+		return "", errors.New("Brevo email request failed; outcome may be unknown. Do not retry automatically")
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return "", fmt.Errorf("Brevo email request failed with HTTP %d", response.StatusCode)
+	}
+	var result struct {
+		MessageID string `json:"messageId"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&result); err != nil || strings.TrimSpace(result.MessageID) == "" {
+		return "", errors.New("Brevo accepted the email but returned no tracking ID; outcome is unknown. Do not retry automatically")
+	}
+	return result.MessageID, nil
+}
+
+func marshalBrevoEmailRequest(fromEmail, fromName string, payload EmailPayload) ([]byte, error) {
 	textBody, htmlBody := payload.TextBody, payload.HTMLBody
 	if strings.TrimSpace(textBody) == "" && strings.TrimSpace(htmlBody) != "" {
 		textBody = "Please open this email in HTML mode."
@@ -137,30 +172,9 @@ func (c *BrevoAPIClient) sendEmail(ctx context.Context, fromEmail, fromName stri
 	}
 	body, err := json.Marshal(requestBody)
 	if err != nil {
-		return "", errors.New("could not encode email request")
+		return nil, errors.New("could not encode email request")
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, brevoAPIBaseURL+"/smtp/email", bytes.NewReader(body))
-	if err != nil {
-		return "", errors.New("could not create Brevo request")
-	}
-	request.Header.Set("api-key", c.apiKey)
-	request.Header.Set("Accept", "application/json")
-	request.Header.Set("Content-Type", "application/json")
-	response, err := c.http.Do(request)
-	if err != nil {
-		return "", errors.New("Brevo email request failed; outcome may be unknown. Do not retry automatically")
-	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return "", fmt.Errorf("Brevo email request failed with HTTP %d", response.StatusCode)
-	}
-	var result struct {
-		MessageID string `json:"messageId"`
-	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&result); err != nil || strings.TrimSpace(result.MessageID) == "" {
-		return "", errors.New("Brevo accepted the email but returned no tracking ID; outcome is unknown. Do not retry automatically")
-	}
-	return result.MessageID, nil
+	return body, nil
 }
 
 func (s *BrevoAPISender) GetEmailStatus(ctx context.Context, messageID string) ([]BrevoEmailEvent, error) {
@@ -177,7 +191,7 @@ func (s *BrevoAPISender) GetEmailStatus(ctx context.Context, messageID string) (
 		return nil, errors.New("could not create Brevo status request")
 	}
 	request.Header.Set("api-key", s.Client.apiKey)
-	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Accept", brevoJSONContentType)
 	response, err := s.Client.http.Do(request)
 	if err != nil {
 		return nil, errors.New("Brevo status request failed")

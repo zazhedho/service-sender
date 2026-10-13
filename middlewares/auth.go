@@ -100,7 +100,7 @@ func (m *Middleware) RoleMiddleware(allowedRoles ...string) gin.HandlerFunc {
 			ctx.AbortWithStatusJSON(http.StatusForbidden, res)
 			return
 		}
-		dataJWT := authData.(map[string]interface{})
+		dataJWT := authData.(map[string]any)
 
 		userRole, ok := dataJWT["role"].(string)
 		if !ok {
@@ -147,7 +147,7 @@ func (m *Middleware) PermissionMiddleware(resource, action string) gin.HandlerFu
 			ctx.AbortWithStatusJSON(http.StatusForbidden, res)
 			return
 		}
-		dataJWT := authData.(map[string]interface{})
+		dataJWT := authData.(map[string]any)
 
 		userRole, ok := dataJWT["role"].(string)
 		if !ok {

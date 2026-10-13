@@ -76,7 +76,7 @@ func runCredentialLogProbe(t *testing.T) {
 	if got := serveCredentialRequest(handler.Register, `{"name":"Test User","email":"register@example.com","phone":"08123456789","password":"register-password-sentinel"}`, nil); got != http.StatusCreated {
 		t.Fatalf("register status = %d", got)
 	}
-	if got := serveCredentialRequest(handler.AdminCreateUser, `{"name":"Test User","email":"admin@example.com","password":"admin-password-sentinel","role":"user"}`, map[string]interface{}{"role": "admin"}); got != http.StatusCreated {
+	if got := serveCredentialRequest(handler.AdminCreateUser, `{"name":"Test User","email":"admin@example.com","password":"admin-password-sentinel","role":"user"}`, map[string]any{"role": "admin"}); got != http.StatusCreated {
 		t.Fatalf("admin create status = %d", got)
 	}
 	if got := serveCredentialRequest(handler.Login, `{"email":"login@example.com","password":"login-password-sentinel"}`, nil); got != http.StatusOK {
@@ -84,7 +84,7 @@ func runCredentialLogProbe(t *testing.T) {
 	}
 }
 
-func serveCredentialRequest(handler gin.HandlerFunc, body string, auth map[string]interface{}) int {
+func serveCredentialRequest(handler gin.HandlerFunc, body string, auth map[string]any) int {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))

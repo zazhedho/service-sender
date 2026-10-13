@@ -68,18 +68,18 @@ func GetAuthToken(ctx *gin.Context) string {
 	return strings.ReplaceAll(bearerToken, "Bearer ", "")
 }
 
-func JwtClaims(ctx *gin.Context) (string, map[string]interface{}, error) {
+func JwtClaims(ctx *gin.Context) (string, map[string]any, error) {
 	tokenString := GetAuthToken(ctx)
 	data, err := JwtClaim(tokenString)
 	return tokenString, data, err
 }
 
-func JwtClaim(tokenString string) (map[string]interface{}, error) {
+func JwtClaim(tokenString string) (map[string]any, error) {
 	if tokenString == "" {
 		return nil, errors.New("empty token")
 	}
 
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
 		hmacSecretString := GetEnv("JWT_KEY", "").(string)
 		if hmacSecretString == "" {
 			return nil, errors.New("jwt key is not configured")

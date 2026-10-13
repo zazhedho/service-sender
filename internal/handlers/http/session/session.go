@@ -61,7 +61,7 @@ func (h *HandlerSession) GetActiveSessions(ctx *gin.Context) {
 		return
 	}
 
-	res := response.Response(http.StatusOK, "success", logId, map[string]interface{}{
+	res := response.Response(http.StatusOK, "success", logId, map[string]any{
 		"sessions": sessions,
 		"total":    len(sessions),
 	})

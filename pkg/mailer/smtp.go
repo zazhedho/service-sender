@@ -10,6 +10,10 @@ import (
 )
 
 func sendMailContext(parent context.Context, addr string, auth smtp.Auth, from string, to []string, msg []byte) (err error) {
+	return sendMailContextWithTLSConfig(parent, addr, auth, from, to, msg, nil)
+}
+
+func sendMailContextWithTLSConfig(parent context.Context, addr string, auth smtp.Auth, from string, to []string, msg []byte, tlsConfig *tls.Config) (err error) {
 	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 	deadline, _ := ctx.Deadline()
@@ -45,10 +49,20 @@ func sendMailContext(parent context.Context, addr string, auth smtp.Auth, from s
 		return err
 	}
 	defer client.Close()
-	if ok, _ := client.Extension("STARTTLS"); ok {
-		if err = client.StartTLS(&tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}); err != nil {
-			return err
+	if ok, _ := client.Extension("STARTTLS"); !ok {
+		return errors.New("SMTP server does not support required STARTTLS")
+	}
+	if tlsConfig == nil {
+		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	} else {
+		tlsConfig = tlsConfig.Clone()
+		if tlsConfig.MinVersion < tls.VersionTLS12 {
+			tlsConfig.MinVersion = tls.VersionTLS12
 		}
+	}
+	tlsConfig.ServerName = host
+	if err = client.StartTLS(tlsConfig); err != nil {
+		return err
 	}
 	if auth != nil {
 		if err = client.Auth(auth); err != nil {

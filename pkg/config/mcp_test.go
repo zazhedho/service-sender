@@ -42,34 +42,42 @@ func TestLoadMCPConfig(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("MCP_ENABLED", tt.enabled)
-			t.Setenv("MCP_ADDR", tt.addr)
-			t.Setenv("MCP_SERVER_KEY", tt.key)
-			t.Setenv("EMAIL_VERIFIED_SENDERS", tt.senders)
-			cfg, err := LoadMCPConfig()
-			if (err != nil) != tt.wantError {
-				t.Fatalf("error = %v, wantError %v", err, tt.wantError)
-			}
-			if tt.wantError {
-				if tt.key != "" && strings.Contains(err.Error(), tt.key) {
-					t.Fatal("configuration error exposes key")
-				}
-				return
-			}
-			if cfg.Enabled != (tt.enabled == "true") {
-				t.Fatalf("enabled = %v", cfg.Enabled)
-			}
-			wantAddr := "127.0.0.1:8081"
-			if tt.addr != "" {
-				wantAddr = tt.addr
-			}
-			if cfg.Addr != wantAddr {
-				t.Fatalf("address = %q", cfg.Addr)
-			}
-			if cfg.Enabled && (len(cfg.Senders) != 1 || cfg.Senders[0].Email != "support@example.com") {
-				t.Fatalf("senders = %+v", cfg.Senders)
-			}
+			assertMCPConfig(t, tt)
 		})
+	}
+}
+
+func assertMCPConfig(t *testing.T, tt struct {
+	name, enabled, addr, key, senders string
+	wantError                         bool
+}) {
+	t.Helper()
+	t.Setenv("MCP_ENABLED", tt.enabled)
+	t.Setenv("MCP_ADDR", tt.addr)
+	t.Setenv("MCP_SERVER_KEY", tt.key)
+	t.Setenv("EMAIL_VERIFIED_SENDERS", tt.senders)
+	cfg, err := LoadMCPConfig()
+	if (err != nil) != tt.wantError {
+		t.Fatalf("error = %v, wantError %v", err, tt.wantError)
+	}
+	if tt.wantError {
+		if tt.key != "" && strings.Contains(err.Error(), tt.key) {
+			t.Fatal("configuration error exposes key")
+		}
+		return
+	}
+	if cfg.Enabled != (tt.enabled == "true") {
+		t.Fatalf("enabled = %v", cfg.Enabled)
+	}
+	wantAddr := "127.0.0.1:8081"
+	if tt.addr != "" {
+		wantAddr = tt.addr
+	}
+	if cfg.Addr != wantAddr {
+		t.Fatalf("address = %q", cfg.Addr)
+	}
+	if cfg.Enabled && (len(cfg.Senders) != 1 || cfg.Senders[0].Email != "support@example.com") {
+		t.Fatalf("senders = %+v", cfg.Senders)
 	}
 }
 

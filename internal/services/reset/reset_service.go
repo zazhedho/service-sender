@@ -96,7 +96,7 @@ func (s *ServiceReset) RequestReset(ctx context.Context, email, appName string) 
 	}
 
 	resetURL := buildResetURL(s.Config.URLTemplate, token)
-	if err := s.Sender.SendPasswordReset(normalizedEmail, token, appName, resetURL, s.Config.TTL); err != nil {
+	if err := s.Sender.SendPasswordReset(ctx, normalizedEmail, token, appName, resetURL, s.Config.TTL); err != nil {
 		_ = s.Repo.DeleteToken(ctx, hash)
 		_ = s.Repo.ClearCooldown(ctx, normalizedEmail)
 		_ = s.Repo.ClearSendCount(ctx, normalizedEmail)

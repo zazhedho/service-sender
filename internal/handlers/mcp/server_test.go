@@ -99,6 +99,13 @@ func toolCall(t *testing.T, session *mcpsdk.ClientSession, name string, args any
 func TestMCPDiscoveryAndSendEmail(t *testing.T) {
 	support, billing := &testEmailService{}, &testEmailService{}
 	session := newMCPSession(t, map[string]interfaceemail.EmailSender{"support": support, "billing": billing}, "Sender Service")
+	assertMCPTools(t, session)
+	assertMCPListedSenders(t, session)
+	assertMCPSendResult(t, session, support, billing)
+}
+
+func assertMCPTools(t *testing.T, session *mcpsdk.ClientSession) {
+	t.Helper()
 	tools, err := session.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -120,6 +127,10 @@ func TestMCPDiscoveryAndSendEmail(t *testing.T) {
 			t.Fatalf("unexpected tool %s", tool.Name)
 		}
 	}
+}
+
+func assertMCPListedSenders(t *testing.T, session *mcpsdk.ClientSession) {
+	t.Helper()
 	list := toolCall(t, session, "list_email_senders", map[string]any{})
 	var senders struct {
 		Senders []config.EmailSenderConfig `json:"senders"`
@@ -128,9 +139,13 @@ func TestMCPDiscoveryAndSendEmail(t *testing.T) {
 	if list.IsError || json.Unmarshal(encoded, &senders) != nil || len(senders.Senders) != 2 || senders.Senders[0].ID != "support" || senders.Senders[1].Email != "billing@example.com" {
 		t.Fatalf("senders = %s", encoded)
 	}
+}
+
+func assertMCPSendResult(t *testing.T, session *mcpsdk.ClientSession, support, billing *testEmailService) {
+	t.Helper()
 	result := toolCall(t, session, "send_email", map[string]any{"sender_id": "billing", "to": []string{"a@example.com"}, "subject": " Invoice ", "text_body": "Hello", "reply_to": "reply@example.com"})
 	var output SendEmailOutput
-	encoded, _ = json.Marshal(result.StructuredContent)
+	encoded, _ := json.Marshal(result.StructuredContent)
 	if result.IsError || json.Unmarshal(encoded, &output) != nil || output.Status != "smtp_accepted" || output.SenderID != "billing" || output.TotalSent != 1 || output.Subject != "Invoice" {
 		t.Fatalf("send output = %s", encoded)
 	}
@@ -258,33 +273,44 @@ func TestMCPRejectsInvalidInput(t *testing.T) {
 func TestMCPSafeErrors(t *testing.T) {
 	for _, app := range []string{"App", "App\r\nInjected: yes"} {
 		t.Run(app, func(t *testing.T) {
-			service := &testEmailService{err: errors.New("accepted first recipient, then failed: credential=test-secret")}
-			session := newMCPSession(t, map[string]interfaceemail.EmailSender{"support": service}, app)
-			result := toolCall(t, session, "send_email", map[string]any{"sender_id": "support", "to": []string{"a@example.com", "b@example.com"}, "subject": "Hello", "text_body": "Body"})
-			data, _ := json.Marshal(result)
-			if !result.IsError || strings.Contains(string(data), "test-secret") || strings.Contains(string(data), "Injected") {
-				t.Fatalf("unsafe result: %s", data)
-			}
-			if app == "App" && (!strings.Contains(string(data), "unknown") || !strings.Contains(string(data), "retry")) {
-				t.Fatalf("ambiguous SMTP outcome not explained: %s", data)
-			}
-			if app != "App" {
-				calls, _ := service.snapshot()
-				if len(calls) != 0 {
-					t.Fatal("unsafe app name reached sender")
-				}
-			}
+			assertMCPSafeEmailError(t, app)
 		})
 	}
 	t.Run("unconfigured sender still lists", func(t *testing.T) {
-		session := newMCPSession(t, nil, "App")
-		if toolCall(t, session, "list_email_senders", map[string]any{}).IsError {
-			t.Fatal("list required SMTP")
-		}
-		if !toolCall(t, session, "send_email", map[string]any{"sender_id": "support", "to": []string{"a@example.com"}, "subject": "Hello", "text_body": "Body"}).IsError {
-			t.Fatal("missing sender accepted")
-		}
+		assertMCPUnconfiguredSender(t)
 	})
+}
+
+func assertMCPSafeEmailError(t *testing.T, app string) {
+	t.Helper()
+	service := &testEmailService{err: errors.New("accepted first recipient, then failed: credential=test-secret")}
+	session := newMCPSession(t, map[string]interfaceemail.EmailSender{"support": service}, app)
+	result := toolCall(t, session, "send_email", map[string]any{"sender_id": "support", "to": []string{"a@example.com", "b@example.com"}, "subject": "Hello", "text_body": "Body"})
+	data, _ := json.Marshal(result)
+	if !result.IsError || strings.Contains(string(data), "test-secret") || strings.Contains(string(data), "Injected") {
+		t.Fatalf("unsafe result: %s", data)
+	}
+	if app == "App" {
+		if !strings.Contains(string(data), "unknown") || !strings.Contains(string(data), "retry") {
+			t.Fatalf("ambiguous SMTP outcome not explained: %s", data)
+		}
+		return
+	}
+	calls, _ := service.snapshot()
+	if len(calls) != 0 {
+		t.Fatal("unsafe app name reached sender")
+	}
+}
+
+func assertMCPUnconfiguredSender(t *testing.T) {
+	t.Helper()
+	session := newMCPSession(t, nil, "App")
+	if toolCall(t, session, "list_email_senders", map[string]any{}).IsError {
+		t.Fatal("list required SMTP")
+	}
+	if !toolCall(t, session, "send_email", map[string]any{"sender_id": "support", "to": []string{"a@example.com"}, "subject": "Hello", "text_body": "Body"}).IsError {
+		t.Fatal("missing sender accepted")
+	}
 }
 
 func TestMCPIdempotencyHeader(t *testing.T) {
@@ -304,14 +330,16 @@ func TestMCPIdempotencyHeader(t *testing.T) {
 
 const initializeRequest = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}`
 
+type mcpAuthTestCase struct {
+	name               string
+	auth               []string
+	body, path, origin string
+	want               int
+}
+
 func TestMCPAuthenticationAndLimits(t *testing.T) {
 	handler := NewHTTPHandler(testMCPConfig(), nil, "App")
-	tests := []struct {
-		name               string
-		auth               []string
-		body, path, origin string
-		want               int
-	}{
+	tests := []mcpAuthTestCase{
 		{name: "missing", want: 401},
 		{name: "wrong", auth: []string{"Bearer wrong"}, want: 401},
 		{name: "duplicate", auth: []string{"Bearer test-key", "Bearer test-key"}, want: 401},
@@ -324,28 +352,32 @@ func TestMCPAuthenticationAndLimits(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			body, path := tt.body, tt.path
-			if body == "" {
-				body = initializeRequest
-			}
-			if path == "" {
-				path = "/mcp"
-			}
-			req := httptest.NewRequest(http.MethodPost, "http://localhost"+path, strings.NewReader(body))
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Accept", "application/json, text/event-stream")
-			for _, auth := range tt.auth {
-				req.Header.Add("Authorization", auth)
-			}
-			if tt.origin != "" {
-				req.Header.Set("Origin", tt.origin)
-			}
-			response := httptest.NewRecorder()
-			handler.ServeHTTP(response, req)
-			if response.Code != tt.want {
-				t.Fatalf("status = %d, want %d; body %s", response.Code, tt.want, response.Body.String())
-			}
+			assertMCPAuthCase(t, handler, tt)
 		})
+	}
+}
+
+func assertMCPAuthCase(t *testing.T, handler http.Handler, test mcpAuthTestCase) {
+	t.Helper()
+	if test.body == "" {
+		test.body = initializeRequest
+	}
+	if test.path == "" {
+		test.path = "/mcp"
+	}
+	req := httptest.NewRequest(http.MethodPost, "http://localhost"+test.path, strings.NewReader(test.body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	for _, value := range test.auth {
+		req.Header.Add("Authorization", value)
+	}
+	if test.origin != "" {
+		req.Header.Set("Origin", test.origin)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, req)
+	if response.Code != test.want {
+		t.Fatalf("%s: status = %d, want %d; body %s", test.name, response.Code, test.want, response.Body.String())
 	}
 }
 

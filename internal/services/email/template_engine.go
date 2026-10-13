@@ -11,7 +11,7 @@ import (
 var ErrTemplateNotFound = fmt.Errorf("email template not found")
 var ErrSubjectRequired = fmt.Errorf("subject is required")
 
-func renderEmailContent(reqSubject, reqText, reqHTML, templateKey string, templateData map[string]interface{}, appName string) (string, string, string, error) {
+func renderEmailContent(reqSubject, reqText, reqHTML, templateKey string, templateData map[string]any, appName string) (string, string, string, error) {
 	subject := strings.TrimSpace(reqSubject)
 	textBody := strings.TrimSpace(reqText)
 	htmlBody := strings.TrimSpace(reqHTML)
@@ -32,7 +32,7 @@ func renderEmailContent(reqSubject, reqText, reqHTML, templateKey string, templa
 		return "", "", "", ErrTemplateNotFound
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"AppName": appName,
 		"Subject": subject,
 	}
@@ -63,7 +63,7 @@ func renderEmailContent(reqSubject, reqText, reqHTML, templateKey string, templa
 	return strings.TrimSpace(renderedSubject), strings.TrimSpace(renderedText), strings.TrimSpace(renderedHTML), nil
 }
 
-func renderTextTemplate(name, content string, data map[string]interface{}) (string, error) {
+func renderTextTemplate(name, content string, data map[string]any) (string, error) {
 	tpl, err := texttemplate.New(name).Parse(content)
 	if err != nil {
 		return "", err
@@ -76,7 +76,7 @@ func renderTextTemplate(name, content string, data map[string]interface{}) (stri
 	return buf.String(), nil
 }
 
-func renderHTMLTemplate(name, content string, data map[string]interface{}) (string, error) {
+func renderHTMLTemplate(name, content string, data map[string]any) (string, error) {
 	tpl, err := htmltemplate.New(name).Parse(content)
 	if err != nil {
 		return "", err

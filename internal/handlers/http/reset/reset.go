@@ -44,7 +44,7 @@ func writePasswordResetUnavailable(ctx *gin.Context, logId uuid.UUID, status int
 	ctx.JSON(status, res)
 }
 
-func bindResetJSON(ctx *gin.Context, req interface{}, logId uuid.UUID, logPrefix string) bool {
+func bindResetJSON(ctx *gin.Context, req any, logId uuid.UUID, logPrefix string) bool {
 	if err := ctx.BindJSON(req); err != nil {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, logPrefix+bindJSONErrorPrefix+err.Error())
 		res := response.Response(http.StatusBadRequest, messages.InvalidRequest, logId, nil)
@@ -165,7 +165,7 @@ func (h *HandlerReset) SendResetEmail(ctx *gin.Context) {
 		resetURL = buildResetURL(h.Config.URLTemplate, req.Token)
 	}
 
-	if err := h.Sender.SendPasswordReset(req.Email, req.Token, appName, resetURL, ttl); err != nil {
+	if err := h.Sender.SendPasswordReset(ctx.Request.Context(), req.Email, req.Token, appName, resetURL, ttl); err != nil {
 		logger.WriteLogWithContext(ctx, logger.LogLevelError, fmt.Sprintf("%s; SendPasswordReset error: %v", logPrefix, err))
 		res := response.Response(http.StatusBadGateway, messages.MsgFail, logId, nil)
 		res.Error = response.Errors{Code: http.StatusBadGateway, Message: "Failed to send reset email"}

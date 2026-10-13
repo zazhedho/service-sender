@@ -11,14 +11,14 @@ import (
 )
 
 type recordingSender struct {
-	ctx     context.Context
+	done    <-chan struct{}
 	payload mailer.EmailPayload
 	calls   int
 	err     error
 }
 
 func (s *recordingSender) SendEmail(ctx context.Context, payload mailer.EmailPayload) error {
-	s.ctx, s.payload = ctx, payload
+	s.done, s.payload = ctx.Done(), payload
 	s.calls++
 	return s.err
 }
@@ -35,7 +35,7 @@ func TestEmailServiceForwardsContext(t *testing.T) {
 	if err != nil || total != 2 || subject != "Hello" {
 		t.Fatalf("send = %d, %q, %v", total, subject, err)
 	}
-	if sender.ctx != ctx || sender.calls != 1 || sender.payload.To[0] != "a@example.com" || sender.payload.AppName != "App" || sender.payload.IdempotencyKey != "rest-key" {
+	if sender.done != ctx.Done() || sender.calls != 1 || sender.payload.To[0] != "a@example.com" || sender.payload.AppName != "App" || sender.payload.IdempotencyKey != "rest-key" {
 		t.Fatalf("payload = %+v, calls %d", sender.payload, sender.calls)
 	}
 }

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 )
 
-func JsonEncode(data interface{}) string {
+func JsonEncode(data any) string {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return ""
